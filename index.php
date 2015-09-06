@@ -1035,7 +1035,9 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           $sqlpc = array();
           foreach($payload['mninfo'] as $mninfo) {
             $mniplong = ip2long($mninfo['MasternodeIP']);
-            if ($mniplong !== false) {
+            if ($mniplong === false) {
+              $mniplong = 0;
+            }
               $mninfosql[] = sprintf("(%d, %d, %d, %d, %d, '%s', '%s')",
                                      $mniplong,
                                      $mninfo['MasternodePort'],
@@ -1055,14 +1057,14 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                  $mnipcountry = "Unknown";
                  $mnipcountrycode = "__";
               }
-              $sqlpc[] = sprintf("(%d, %d, %d, 'unknown', '%s', '%s')",
-                                     $mniplong,
-                                     $mninfo['MasternodePort'],
+              $sqlpc[] = sprintf("(INET6_ATON('%s'), %d, %d, 'unknown', '%s', '%s')",
+                  $mysqli->real_escape_string($mninfo['MasternodeIP']),
+                  $mninfo['MasternodePort'],
                                      $mninfo['MNTestNet'],
                                      $mnipcountry,
                                      $mnipcountrycode
                                     );
-            }
+
           }
 
           $mninfoinfo = false;
@@ -1101,16 +1103,19 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           $mnqueryexc2 = array();
           foreach($payload['mninfo2'] as $mninfo) {
             $mniplong = ip2long($mninfo['MasternodeIP']);
-            if ($mniplong !== false) {
+            if ($mniplong === false) {
+              $mniplong = 0;
+            }
               $mnoutputhash = $mysqli->real_escape_string($mninfo['MasternodeOutputHash']);
-              $mninfosql2[] = sprintf("('%s', %d, %d, %d, '%s', %d, %d, %d, %d, %d)",
+              $mninfosql2[] = sprintf("('%s', %d, %d, %d, '%s', %d, INET6_ATON('%s'), %d, %d, %d, %d)",
                                       $mnoutputhash,
                                       $mninfo['MasternodeOutputIndex'],
                                       $mninfo['MasternodeTestNet'],
                                       $mninfo['MasternodeProtocol'],
                                       $mysqli->real_escape_string($mninfo['MasternodePubkey']),
                                       $mniplong,
-                                      $mninfo['MasternodePort'],
+                  $mysqli->real_escape_string($mninfo['MasternodeIP']),
+                  $mninfo['MasternodePort'],
                                       $mninfo['MasternodeLastSeen'],
                                       $mninfo['MasternodeActiveSeconds'],
                                       $mninfo['MasternodeLastPaid']
@@ -1125,24 +1130,23 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                  $mnipcountry = "Unknown";
                  $mnipcountrycode = "__";
               }
-              $sqlpc[] = sprintf("(%d, %d, %d, 'unknown', '%s', '%s')",
-                                     $mniplong,
+              $sqlpc[] = sprintf("(INET6_ATON('%s'), %d, %d, 'unknown', '%s', '%s')",
+                  $mysqli->real_escape_string($mninfo['MasternodeIP']),
                                      $mninfo['MasternodePort'],
                                      $mninfo['MasternodeTestNet'],
                                      $mnipcountry,
                                      $mnipcountrycode
                                     );
-            }
           }
 
           $mninfo2info = false;
           if (count($mninfosql2) > 0) {
             $sql = "INSERT INTO cmd_info_masternode2 (MasternodeOutputHash, MasternodeOutputIndex, MasternodeTestNet,"
-                  ." MasternodeProtocol, MasternodePubkey, MasternodeIP, MasternodePort, MasternodeLastSeen,"
+                  ." MasternodeProtocol, MasternodePubkey, MasternodeIP, MasternodeIPv6, MasternodePort, MasternodeLastSeen,"
                   ." MasternodeActiveSeconds, MasternodeLastPaid) VALUE ".implode(',',$mninfosql2)
                   ." ON DUPLICATE KEY UPDATE MasternodeActiveSeconds = VALUES(MasternodeActiveSeconds),"
                   ." MasternodeLastSeen = VALUES(MasternodeLastSeen), MasternodeProtocol = VALUES(MasternodeProtocol),"
-                  ." MasternodePubkey = VALUES(MasternodePubkey), MasternodeIP = VALUES(MasternodeIP),"
+                  ." MasternodePubkey = VALUES(MasternodePubkey), MasternodeIP = VALUES(MasternodeIP), MasternodeIPv6 = VALUES(MasternodeIPv6),"
                   ." MasternodePort = VALUES(MasternodePort), MasternodeLastPaid = VALUES(MasternodeLastPaid)";
             $result22 = $mysqli->query($sql);
             $mninfo2info = $mysqli->info;
@@ -1409,14 +1413,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
               }
             }
           }
-/*          $sql = "SELECT MNTestNet, COUNT(*) MNActive FROM "
-                ."(SELECT cns.NodeProtocol NodeProtocol, ciml.MasternodeIP MasternodeIP, ciml.MasternodePort MasternodePort, ciml.MNTestNet MNTestNet, MNPubKey, COUNT(1) ActiveCount FROM "
-                ."cmd_info_masternode_list ciml, cmd_info_masternode_pubkeys cimpk, cmd_nodes_status cns, (SELECT NodeTestNet, MAX(NodeProtocol) Protocol FROM "
-                ."cmd_nodes cn, cmd_nodes_status cns WHERE cn.NodeId = cns.NodeId GROUP BY NodeTestnet) maxprot WHERE "
-                ."ciml.MasternodeIP = cimpk.MasternodeIP AND ciml.MasternodePort = cimpk.MasternodePort AND ciml.MNTestNet = cimpk.MNTestNet AND "
-                ."ciml.NodeID = cns.NodeID AND (MasternodeStatus = 'active' OR MasternodeStatus = 'current') AND cns.NodeProtocol = maxprot.protocol AND ciml.MNTestNet = maxprot.NodeTestNet "
-                ."GROUP BY MasternodeIP, MasternodePort, MNTestNet, MNPubKey) mnactive WHERE ActiveCount > 0 GROUP BY MNTestNet";
-*/
+
           $sql = "SELECT MNTestNet, COUNT(*) MNActive FROM "
                 ."(SELECT cim.MasternodeOutputHash MasternodeOutputHash, cim.MasternodeOutputIndex MasternodeOutputIndex, cim.MasternodeTestNet MNTestNet, COUNT(1) ActiveCount FROM "
                 ."cmd_info_masternode2_list ciml, cmd_info_masternode2 cim, (SELECT NodeTestNet, MAX(NodeProtocol) Protocol FROM "
@@ -1675,7 +1672,7 @@ $app->get('/pools', function() use ($app,&$mysqli) {
 // ============================================================================
 // PORTCHECK/CONFIG (for dmnportcheck)
 // ----------------------------------------------------------------------------
-// End-point to retrieve portcheck configuration
+// End-point to retrieve port check configuration
 // HTTP method:
 //   GET
 // Parameters:
@@ -1736,7 +1733,7 @@ $app->get('/portcheck/config', function() use ($app,&$mysqli) {
 // ============================================================================
 // PORTCHECK/LIST (for dmnportcheck)
 // ----------------------------------------------------------------------------
-// End-point to retrieve portcheck list of nodes
+// End-point to retrieve port check list of nodes
 // HTTP method:
 //   GET
 // Parameters:
@@ -1764,7 +1761,7 @@ $app->get('/portcheck/list', function() use ($app,&$mysqli) {
   }
   else {
     // Retrieve all masternodes informations for portchecker
-    $sql = "SELECT inet_ntoa(NodeIP) NodeIP, NodePort, NodeTestNet, NodePortCheck, NextCheck, NodeSubVer, ErrorMessage FROM cmd_portcheck ORDER BY NextCheck";
+    $sql = "SELECT inet6_ntoa(NodeIP) NodeIP, NodePort, NodeTestNet, NodePortCheck, NextCheck, NodeSubVer, ErrorMessage FROM cmd_portcheck ORDER BY NextCheck";
     $portcheck = array();
     if ($result = $mysqli->query($sql)) {
       while($row = $result->fetch_assoc()){
@@ -1828,8 +1825,8 @@ $app->post('/portcheck', function() use ($app,&$mysqli) {
         $mnipcountry = "Unknown";
         $mnipcountrycode = "__";
       }
-      $sqlpc[] = sprintf("(%d,%d,%d,'%s','%s','%s','%s', '%s', '%s')",
-                                  ip2long($node['NodeIP']),
+      $sqlpc[] = sprintf("(INET6_ATON('%s'),%d,%d,'%s','%s','%s','%s', '%s', '%s')",
+          $mysqli->real_escape_string($node['NodeIP']),
                                   $node['NodePort'],
                                   $node['NodeTestNet'],
                                   $mysqli->real_escape_string($node['NodePortCheck']),
