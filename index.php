@@ -422,7 +422,7 @@ $sqlkeep = $sql;
         }
 
       foreach($payload['blocksinfo'] as $bientry) {
-        $bisql[] = sprintf("(%d,%d,'%s','%s',%.9f,%.9f,%d,'%s',%d,%d,%.9f,%d,'%s',%.9f)",$bientry['BlockTestNet'],
+        $bisql[] = sprintf("(%d,%d,'%s','%s',%.9f,%.9f,%d,'%s',%d,%d,%.9f,%d,'%s',%.9f,%d,'%s')",$bientry['BlockTestNet'],
                                                      $bientry['BlockId'],
                                                      $mysqli->real_escape_string($bientry['BlockHash']),
                                                      $mysqli->real_escape_string($bientry['BlockMNPayee']),
@@ -435,7 +435,10 @@ $sqlkeep = $sql;
                                                      $bientry['BlockDifficulty'],
                                                      $bientry['BlockMNPayeeDonation'],
                                                      $mysqli->real_escape_string($blockhist[intval($bientry['BlockId'])]['BlockMNPayeeExpected']),
-                                                     $blockhist[intval($bientry['BlockId'])]['BlockMNValueRatioExpected']);
+                                                     $blockhist[intval($bientry['BlockId'])]['BlockMNValueRatioExpected'],
+                                                     $bientry['IsSuperblock'],
+            $mysqli->real_escape_string($bientry['SuperblockBudgetName'])
+        );
         if ((array_key_exists($bientry['BlockMNPayee'].":".$bientry['BlockTestNet'],$mninfo) && ($mninfo[$bientry['BlockMNPayee'].":".$bientry['BlockTestNet']] < $bientry['BlockId']))
          || !(array_key_exists($bientry['BlockMNPayee'].":".$bientry['BlockTestNet'],$mninfo))) {
           $mninfo[$bientry['BlockMNPayee'].":".$bientry['BlockTestNet']] = $bientry['BlockId'];
@@ -452,13 +455,13 @@ $sqlkeep = $sql;
       $mninfoinfo = false;
       if (count($bisql) > 0) {
         $sql = "INSERT INTO cmd_info_blocks (BlockTestNet, BlockId, BlockHash, BlockMNPayee, BlockMNValue, BlockSupplyValue, BlockMNPayed, "
-              ."BlockPoolPubKey, BlockMNProtocol, BlockTime, BlockDifficulty, BlockMNPayeeDonation, BlockMNPayeeExpected, BlockMNValueRatioExpected)"
+              ."BlockPoolPubKey, BlockMNProtocol, BlockTime, BlockDifficulty, BlockMNPayeeDonation, BlockMNPayeeExpected, BlockMNValueRatioExpected, IsSuperblock, SuperblockBudgetName)"
               ." VALUES ".implode(',',$bisql)
               ." ON DUPLICATE KEY UPDATE BlockHash = VALUES(BlockHash), BlockMNPayee = VALUES(BlockMNPayee), BlockMNValue = VALUES(BlockMNValue),"
               ." BlockSupplyValue = VALUES(BlockSupplyValue), BlockMNPayed = VALUES(BlockMNPayed), BlockPoolPubKey = VALUES(BlockPoolPubKey),"
               ." BlockMNProtocol = VALUES(BlockMNProtocol), BlockTime = VALUES(BlockTime), BlockDifficulty = VALUES(BlockDifficulty),"
               ." BlockMNPayeeDonation = VALUES(BlockMNPayeeDonation), BlockMNPayeeExpected = VALUES(BlockMNPayeeExpected),"
-              ." BlockMNValueRatioExpected = VALUES(BlockMNValueRatioExpected)";
+              ." BlockMNValueRatioExpected = VALUES(BlockMNValueRatioExpected), IsSuperblock = VALUES(IsSuperblock), SuperblockBudgetName = VALUES(SuperblockBudgetName)";
 
         if ($result = $mysqli->query($sql)) {
           $biinfo = $mysqli->info;
@@ -543,6 +546,87 @@ $sqlkeep = $sql;
     }
   }
   return $response;
+
+});
+
+// ============================================================================
+// BUDGETS EXPECTED (for dmnblockparser)
+// ----------------------------------------------------------------------------
+// End-point to retrieve all expected superblocks
+// HTTP method:
+//   GET
+// Parameters:
+//   None
+// ============================================================================
+$app->get('/budgetsexpected', function() use ($app,&$mysqli) {
+
+    //Create a response
+    $response = new Phalcon\Http\Response();
+
+    if (!array_key_exists('CONTENT_LENGTH',$_SERVER) || (intval($_SERVER['CONTENT_LENGTH']) != 0)) {
+        //Change the HTTP status
+        $response->setStatusCode(400, "Bad Request");
+        //Send errors to the client
+        $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('Payload (or CONTENT_LENGTH) is missing')));
+    }
+    else {
+        // Retrieve all known final budgets
+        $sql = "SELECT BudgetTestnet, BlockStart, BlockEnd, Proposals FROM cmd_budget_final";
+        $mnbudgets = array(array(),array());
+        $proposalsfinal = array(array(),array());
+        if ($result = $mysqli->query($sql)) {
+            while($row = $result->fetch_assoc()){
+                $pos = 0;
+                $proposals = explode(",",$row['Proposals']);
+                for ($x = intval($row['BlockStart']);$x <= intval($row['BlockEnd']); $x++) {
+                    $mnbudgets[$row['BudgetTestnet']][$x] = array(
+                        "BlockId" => $x,
+                        "BlockProposal" => $proposals[$pos]
+                    );
+                    $proposalsfinal[$row['BudgetTestnet']][] = $proposals[$pos];
+                    $pos++;
+                }
+            }
+
+            $proposalsvalues = array(array(),array());
+            $sql = "SELECT BudgetTestnet, BudgetId, MonthlyPayment, PaymentAddress FROM cmd_budget_projection";
+            if ($result = $mysqli->query($sql)) {
+                $test = array();
+                while ($row = $result->fetch_assoc()) {
+                    $test[] = $row;
+                    if (in_array($row['BudgetId'], $proposalsfinal[$row['BudgetTestnet']])) {
+                        $proposalsvalues[$row['BudgetTestnet']][$row['BudgetId']] = $row;
+                    }
+                }
+
+                foreach ($mnbudgets as $mnbudgetestnet => $mnbudgetdata) {
+                    foreach ($mnbudgetdata as $mnbudgetdataid => $mnbudgetdatadata) {
+                        if (array_key_exists($mnbudgetdatadata["BlockProposal"], $proposalsvalues[$mnbudgetestnet])) {
+                            $mnbudgets[$mnbudgetestnet][$mnbudgetdataid]["MonthlyPayment"] = $proposalsvalues[$mnbudgetestnet][$mnbudgetdatadata["BlockProposal"]]["MonthlyPayment"];
+                            $mnbudgets[$mnbudgetestnet][$mnbudgetdataid]["PaymentAddress"] = $proposalsvalues[$mnbudgetestnet][$mnbudgetdatadata["BlockProposal"]]["PaymentAddress"];
+                        } else {
+                            $mnbudgets[$mnbudgetestnet][$mnbudgetdataid]["MonthlyPayment"] = 0.0;
+                            $mnbudgets[$mnbudgetestnet][$mnbudgetdataid]["PaymentAddress"] = "";
+                        };
+                    }
+                }
+
+                //Change the HTTP status
+                $response->setStatusCode(200, "OK");
+                $response->setJsonContent(array('status' => 'OK', 'data' => array('budgetsexpected' => $mnbudgets)));
+            }
+        else {
+            $response->setStatusCode(503, "Service Unavailable");
+            $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mysqli->errno . ': ' . $mysqli->error)));
+
+        }
+        }
+        else {
+            $response->setStatusCode(503, "Service Unavailable");
+            $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mysqli->errno.': '.$mysqli->error)));
+        }
+    }
+    return $response;
 
 });
 
@@ -970,6 +1054,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
    || !array_key_exists('mnpubkeys',$payload) || !is_array($payload['mnpubkeys'])
    || !array_key_exists('mnbudgetshow',$payload) || !is_array($payload['mnbudgetshow'])
    || !array_key_exists('mnbudgetprojection',$payload) || !is_array($payload['mnbudgetprojection'])
+//   || !array_key_exists('mnbudgetfinal',$payload) || !is_array($payload['mnbudgetfinal'])
    || !array_key_exists('mnlist',$payload) || !is_array($payload['mnlist'])
    || !array_key_exists('mnlist2',$payload) || !is_array($payload['mnlist2'])) {
     //Change the HTTP status
@@ -1582,12 +1667,45 @@ $app->post('/ping', function() use ($app,&$mysqli) {
               }
             }
           }
-//          $mnbudgetprojectioninfo = $sql."\n".$mysqli->error;
+
+            $sqlbudgetfinal = array();
+            foreach($payload['mnbudgetfinal'] as $mnbudget) {
+                $sqlbudgetfinal[] = sprintf("(%d, '%s','%s','%s',%d,%d,%d,'%s',%d,'%s','%s',NOW(),NOW())",
+                    $mnbudget["BudgetTesnet"],
+                    $mysqli->real_escape_string($mnbudget["Hash"]),
+                    $mysqli->real_escape_string($mnbudget["FeeTX"]),
+                    $mysqli->real_escape_string($mnbudget["BudgetName"]),
+                    $mnbudget["BlockStart"],
+                    $mnbudget["BlockEnd"],
+                    $mnbudget["VoteCount"],
+                    $mysqli->real_escape_string($mnbudget["Status"]),
+                    $mnbudget["IsValid"] ? 1 : 0,
+                    $mysqli->real_escape_string($mnbudget["IsValidReason"]),
+                    $mysqli->real_escape_string($mnbudget["Proposals"])
+                );
+            }
+            $mnbudgetfinalinfo = false;
+            if (count($sqlbudgetfinal) > 0) {
+                $sql = "INSERT INTO `cmd_budget_final` (BudgetTestnet, `BudgetHash`, `FeeTx`, `BudgetName`, `BlockStart`, `BlockEnd`,"
+                    ." `VoteCount`, `Status`, `IsValid`, `IsValidReason`, `Proposals`, `FirstReported`, LastReported)"
+                    ." VALUES ".implode(',',$sqlbudgetfinal)
+                    ." ON DUPLICATE KEY UPDATE BudgetName = VALUES(BudgetName), FeeTx = VALUES(FeeTx),"
+                    ." BlockStart = VALUES(BlockStart), BlockEnd = VALUES(BlockEnd), VoteCount = VALUES(VoteCount),"
+                    ." Status = VALUES(Status), IsValid = VALUES(IsValid), IsValidReason = VALUES(IsValidReason),"
+                    ." Proposals = VALUES(Proposals), LastReported = VALUES(LastReported)";
+                if ($result62 = $mysqli->query($sql)) {
+                    $mnbudgetfinalinfo = $mysqli->info;
+                    if (is_null($mnbudgetfinalinfo)) {
+                        $mnbudgetfinalinfo = true;
+                    }
+                }
+            }
 
           //Change the HTTP status
           $response->setStatusCode(202, "Accepted");
           $response->setJsonContent(array('status' => 'OK', 'data' => array(
                                                                             'mnbudgetshow' => $mnbudgetshowinfo,
+                                                                            'mnbudgetfinal' => $mnbudgetfinalinfo,
                                                                             'mnbudgetprojection' => $mnbudgetprojectioninfo,
                                                                             'mnlist' => $mnlistinfo,
                                                                             'mnlist2' => $mnlist2info,
