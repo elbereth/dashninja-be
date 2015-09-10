@@ -1090,13 +1090,15 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                                   $mysqli->real_escape_string($node['Country']),
                                   $mysqli->real_escape_string($node['CountryCode'])
                                 );
-          foreach($node['Spork'] as $sporkname => $sporkvalue) {
-            $sqlspork[] = sprintf("(%d,'%s',%d)",
-                                  $nodes[$uname]['NodeId'],
-                                  $mysqli->real_escape_string($sporkname),
-                                  $sporkvalue
-                                 );
-          }
+            if (array_key_exists("Spork",$node) && is_array($node['Spork'])) {
+                foreach ($node['Spork'] as $sporkname => $sporkvalue) {
+                    $sqlspork[] = sprintf("(%d,'%s',%d)",
+                        $nodes[$uname]['NodeId'],
+                        $mysqli->real_escape_string($sporkname),
+                        $sporkvalue
+                    );
+                }
+            }
         }
 
         $sql = "INSERT INTO cmd_nodes_status (NodeId, NodeProcessStatus, NodeVersion, NodeProtocol, NodeBlocks, NodeLastBlockHash,"
