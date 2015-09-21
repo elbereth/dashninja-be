@@ -15,7 +15,7 @@
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+    along with Dash Ninja.  If not, see <http://www.gnu.org/licenses/>.
 
  */
 
@@ -1054,7 +1054,8 @@ $app->post('/ping', function() use ($app,&$mysqli) {
    || !array_key_exists('mnpubkeys',$payload) || !is_array($payload['mnpubkeys'])
    || !array_key_exists('mnbudgetshow',$payload) || !is_array($payload['mnbudgetshow'])
    || !array_key_exists('mnbudgetprojection',$payload) || !is_array($payload['mnbudgetprojection'])
-//   || !array_key_exists('mnbudgetfinal',$payload) || !is_array($payload['mnbudgetfinal'])
+   || !array_key_exists('mnbudgetfinal',$payload) || !is_array($payload['mnbudgetfinal'])
+   || !array_key_exists('mnbudgetvotes',$payload) || !is_array($payload['mnbudgetvotes'])
    || !array_key_exists('mnlist',$payload) || !is_array($payload['mnlist'])
    || !array_key_exists('mnlist2',$payload) || !is_array($payload['mnlist2'])) {
     //Change the HTTP status
@@ -1703,12 +1704,45 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                 }
             }
 
-          //Change the HTTP status
+            $sqlbudgetvotes = array();
+            foreach($payload['mnbudgetvotes'] as $mnbudget) {
+                $sqlbudgetvotes[] = sprintf("(%d, '%s','%s',%d,'%s','%s',%d,%d)",
+                    $mnbudget["BudgetTesnet"],
+                    $mysqli->real_escape_string($mnbudget["BudgetId"]),
+                    $mysqli->real_escape_string($mnbudget["MasternodeOutputHash"]),
+                    $mnbudget["MasternodeOutputIndex"],
+                    $mysqli->real_escape_string($mnbudget["VoteHash"]),
+                    $mysqli->real_escape_string($mnbudget["VoteValue"]),
+                    $mnbudget["VoteTime"],
+                    $mnbudget["VoteIsValid"] ? 1 : 0
+                );
+            }
+            $mnbudgetvotesinfo = false;
+            if (count($sqlbudgetvotes) > 0) {
+                $sql = "INSERT INTO `cmd_budget_votes` (BudgetTestnet, BudgetId, MasternodeOutputHash,"
+                    ." MasternodeOutputIndex, VoteHash, VoteValue, VoteTime, VoteIsValid)"
+                    ." VALUES ".implode(',',$sqlbudgetvotes)
+                    ." ON DUPLICATE KEY UPDATE VoteHash = VALUES(VoteHash), VoteValue = VALUES(VoteValue), "
+                    ." VoteTime = VALUES(VoteTime), VoteIsValid = VALUES(VoteIsValid)";
+                if ($result605 = $mysqli->query($sql)) {
+                    $mnbudgetvotesinfo = $mysqli->info;
+                    if (is_null($mnbudgetvotesinfo)) {
+                        $mnbudgetvotesinfo = true;
+                    }
+                }
+                else {
+                    $mnbudgetvotesinfo = $mysqli->error;
+                }
+            }
+
+
+            //Change the HTTP status
           $response->setStatusCode(202, "Accepted");
           $response->setJsonContent(array('status' => 'OK', 'data' => array(
                                                                             'mnbudgetshow' => $mnbudgetshowinfo,
                                                                             'mnbudgetfinal' => $mnbudgetfinalinfo,
                                                                             'mnbudgetprojection' => $mnbudgetprojectioninfo,
+                                                                            'mnbudgetvotes' => $mnbudgetvotesinfo,
                                                                             'mnlist' => $mnlistinfo,
                                                                             'mnlist2' => $mnlist2info,
                                                                             'mninfo' => $mninfoinfo,

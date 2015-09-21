@@ -15,12 +15,12 @@
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+    along with Dash Ninja.  If not, see <http://www.gnu.org/licenses/>.
 
  */
 
 // Path to the cache folder (files will be created in there, best if outside www access)
-DEFINE('CACHEFOLDER',"/home/dashninjacmd/cache/");
+DEFINE('CACHEFOLDER',"/home/dashninja-be/cache/");
 
 // MySQL dtabase/user to use (it needs read & write access to the database)
 DEFINE('MYSQLUSER',"your_mysql_user");
