@@ -571,7 +571,7 @@ $app->get('/budgetsexpected', function() use ($app,&$mysqli) {
     }
     else {
         // Retrieve all known final budgets
-        $sql = "SELECT BudgetTestnet, BlockStart, BlockEnd, Proposals FROM cmd_budget_final";
+        $sql = 'SELECT BudgetTestnet, BlockStart, BlockEnd, Proposals FROM cmd_budget_final WHERE VoteCount > 0 AND IsValid = 1 AND Status = "OK"';
         $mnbudgets = array(array(),array());
         $proposalsfinal = array(array(),array());
         if ($result = $mysqli->query($sql)) {
