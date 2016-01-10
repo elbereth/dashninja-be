@@ -1074,10 +1074,14 @@ $app->post('/ping', function() use ($app,&$mysqli) {
         $sqlspork = array();
         foreach($payload['nodes'] as $uname => $node) {
           if (!array_key_exists($uname,$nodes)) {
-            $response->setStatusCode(503, "Service Unavailable");
-            $response->setJsonContent(array('status' => 'ERROR', 'messages' => array("Unknown node reported")));
-            return $response;
+              $response->setStatusCode(503, "Service Unavailable");
+              $response->setJsonContent(array('status' => 'ERROR', 'messages' => array("Unknown node reported")));
+              return $response;
           }
+            $ip = $mysqli->real_escape_string($node['IP']);
+            if ($ip == "") {
+                $ip = "0.0.0.0";
+            }
           $sqlstatus[] = sprintf("(%d,'%s',%d,%d,%d,'%s',%d,inet_aton('%s'),%d,'%s','%s',NOW())",
                                   $nodes[$uname]['NodeId'],
                                   $mysqli->real_escape_string($node['ProcessStatus']),
@@ -1086,7 +1090,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                                   $node['Blocks'],
                                   $mysqli->real_escape_string($node['LastBlockHash']),
                                   $node['Connections'],
-                                  $mysqli->real_escape_string($node['IP']),
+                                  $ip,
                                   $node['Port'],
                                   $mysqli->real_escape_string($node['Country']),
                                   $mysqli->real_escape_string($node['CountryCode'])
@@ -1760,7 +1764,9 @@ $app->post('/ping', function() use ($app,&$mysqli) {
         }
         else {
           $response->setStatusCode(503, "Service Unavailable");
-          $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mysqli->errno.': '.$mysqli->error)));
+          $response->setJsonContent(array('status' => 'ERROR',
+                                          'messages' => array("INSERT INTO cmd_nodes_status",$mysqli->errno.': '.$mysqli->error),
+                                          'debug' => $sql));
         }
       }
       else {
