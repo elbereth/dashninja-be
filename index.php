@@ -2031,6 +2031,7 @@ $app->post('/portcheck', function() use ($app,&$mysqli) {
 //   POST
 // Parameters (JSON body):
 //   thirdparties=array of keys/values (mandatory)
+//   dashwhale=array of keys/values (mandatory)
 // Result (JSON body):
 //   status=OK|ERROR
 //   messages=array of error messages (only if status is ERROR)
@@ -2047,7 +2048,9 @@ $app->post('/thirdparties', function() use ($app,&$mysqli) {
   $payload = json_decode($payload,true);
 
   if (!array_key_exists('CONTENT_LENGTH',$_SERVER) || (intval($_SERVER['CONTENT_LENGTH']) == 0)
-   || !is_array($payload) || (count($payload) == 0)) {
+      || !is_array($payload) || (count($payload) == 0)
+      || !array_key_exists("thirdparties",$payload) || !is_array($payload["thirdparties"])
+      || !array_key_exists("dashwhale",$payload) || !is_array($payload["dashwhale"])) {
     //Change the HTTP status
     $response->setStatusCode(400, "Bad Request");
 
@@ -2056,6 +2059,9 @@ $app->post('/thirdparties', function() use ($app,&$mysqli) {
   }
   else {
 
+    $errors = array();
+
+    // Third Parties values
     $sqlstats = array();
     foreach($payload["thirdparties"] as $key => $value) {
       $sqlstats[] = sprintf("('%s','%s',%d,'%s')",
@@ -2071,26 +2077,91 @@ $app->post('/thirdparties', function() use ($app,&$mysqli) {
               ." VALUES ".implode(',',$sqlstats)
               ." ON DUPLICATE KEY UPDATE StatValue = VALUES(StatValue), LastUpdate = VALUES(LastUpdate), Source = VALUES(Source)";
 
-    var_dump($sql);
-
-
       if ($result = $mysqli->query($sql)) {
         $statsinfo = $mysqli->info;
         if (is_null($statsinfo)) {
           $statsinfo = true;
         }
-        //Change the HTTP status
-        $response->setStatusCode(202, "Accepted");
-        $response->setJsonContent(array('status' => 'OK', 'data' => array('thirdparties' => $statsinfo)));
       }
       else {
-        $response->setStatusCode(503, "Service Unavailable");
-        $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mysqli->errno.': '.$mysqli->error)));
-        return $response;
+          $errors[] = "TP-".$mysqli->errno.': '.$mysqli->error;
+      }
+    }
+
+    // Dash Whale data
+    $sqldwc = array();
+    foreach($payload["dashwhale"] as $proposal) {
+      $dwinfo = var_export($proposal,true);
+      if (is_array($proposal) && (count($proposal) == 2)
+      && array_key_exists("proposal",$proposal) && is_array($proposal["proposal"])
+      && array_key_exists("comments",$proposal) && is_array($proposal["comments"])
+      && array_key_exists('hash',$proposal["proposal"]) && is_string($proposal["proposal"]["hash"])
+      && (preg_match("/^[0-9a-f]{64}$/s", $proposal["proposal"]["hash"]) === 1)
+      ){
+        foreach($proposal["comments"] as $comment) {
+            if ($comment !== false && is_array($comment) && array_key_exists('id', $comment) && is_string($comment["id"])
+                && array_key_exists('username', $comment) && is_string($comment["username"])
+                && array_key_exists('date', $comment) && is_string($comment["date"])
+                && array_key_exists('order', $comment) && is_int($comment["order"])
+                && array_key_exists('level', $comment)
+                && array_key_exists('recently_posted', $comment) && is_bool($comment["recently_posted"])
+                && array_key_exists('posted_by_owner', $comment) && is_bool($comment["posted_by_owner"])
+                && array_key_exists('reply_url', $comment) && is_string($comment["reply_url"])
+                && array_key_exists('content', $comment) && is_string($comment["content"])
+                && (preg_match("/^[0-9a-f]{32}$/s", $comment["id"]) === 1)
+                && (!filter_var($comment["reply_url"], FILTER_VALIDATE_URL) === false)
+            ) {
+                $sqldwc[] = sprintf("('%s','%s','%s','%s',%d,%d,%d,%d,'%s','%s')",
+                    $mysqli->real_escape_string($proposal["proposal"]["hash"]),
+                    $mysqli->real_escape_string($comment["id"]),
+                    $mysqli->real_escape_string($comment["username"]),
+                    $mysqli->real_escape_string($comment["date"]),
+                    $comment["order"],
+                    intval($comment["level"]),
+                    $comment["recently_posted"] ? 1 : 0,
+                    $comment["posted_by_owner"] ? 1 : 0,
+                    $mysqli->real_escape_string($comment["reply_url"]),
+                    $mysqli->real_escape_string($comment["content"])
+                );
+            }
+        }
+      }
+    }
+
+      if (count($sqldwc) > 0) {
+          $sql = "INSERT INTO cmd_budget_dashwhale_comments (BudgetHash, CommentHash, CommentUsername, CommentDate, "
+                ."CommentOrder, CommentLevel, CommentRecentPost, CommentByOwner, CommentReplyURL, CommentContent)"
+                ." VALUES ".implode(',',$sqldwc)
+                ." ON DUPLICATE KEY UPDATE CommentUsername = VALUES(CommentUsername), CommentDate = VALUES(CommentDate), "
+                ." CommentOrder = VALUES(CommentOrder), CommentLevel = VALUES(CommentLevel), CommentRecentPost = VALUES(CommentRecentPost),"
+                ." CommentByOwner = VALUES(CommentByOwner), CommentReplyURL = VALUES(CommentReplyURL), CommentContent = VALUES(CommentContent)";
+
+          if ($result = $mysqli->query($sql)) {
+              $dwinfo = $mysqli->info;
+              if (is_null($dwinfo)) {
+                  $dwinfo = true;
+              }
+          }
+          else {
+              $errors[] = "DW-".$mysqli->errno.': '.$mysqli->error;
+          }
+      }
+      else {
+          $dwinfo = "Nothing to do";
       }
 
+
+    if (count($errors) == 0) {
+        $response->setStatusCode(202, "Accepted");
+        $response->setJsonContent(array('status' => 'OK', 'data' => array('thirdparties' => $statsinfo,
+                                                                          'dashwhale' => $dwinfo)));
+    }
+    else {
+        $response->setStatusCode(503, "Service Unavailable");
+        $response->setJsonContent(array('status' => 'ERROR', 'messages' => $errors));
     }
   }
+
   return $response;
 
 });
