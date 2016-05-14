@@ -407,7 +407,6 @@ SELECT NC.BlockHeight BlockHeight, BlockMNPayee, BlockMNRatio FROM _cibh_maxnode
 EOT;
 
         $sql = sprintf($sql,implode(" OR ",$sqlwhere));
-$sqlkeep = $sql;
         $blockhist = array();
         if ($mysqli->multi_query($sql) &&
             $mysqli->more_results() && $mysqli->next_result() &&
@@ -422,7 +421,7 @@ $sqlkeep = $sql;
         }
 
       foreach($payload['blocksinfo'] as $bientry) {
-        $bisql[] = sprintf("(%d,%d,'%s','%s',%.9f,%.9f,%d,'%s',%d,%d,%.9f,%d,'%s',%.9f,%d,'%s')",$bientry['BlockTestNet'],
+        $bisql[] = sprintf("(%d,%d,'%s','%s',%.9f,%.9f,%d,'%s',%d,%d,%.9f,%d,'%s',%.9f,%d,'%s',%d,%d)",$bientry['BlockTestNet'],
                                                      $bientry['BlockId'],
                                                      $mysqli->real_escape_string($bientry['BlockHash']),
                                                      $mysqli->real_escape_string($bientry['BlockMNPayee']),
@@ -436,8 +435,10 @@ $sqlkeep = $sql;
                                                      $bientry['BlockMNPayeeDonation'],
                                                      $mysqli->real_escape_string($blockhist[intval($bientry['BlockId'])]['BlockMNPayeeExpected']),
                                                      $blockhist[intval($bientry['BlockId'])]['BlockMNValueRatioExpected'],
-                                                     $bientry['IsSuperblock'],
-            $mysqli->real_escape_string($bientry['SuperblockBudgetName'])
+            $bientry['IsSuperblock'],
+            $mysqli->real_escape_string($bientry['SuperblockBudgetName']),
+            $bientry['BlockDarkSendTXCount'],
+            $bientry['MemPoolDarkSendTXCount']
         );
         if ((array_key_exists($bientry['BlockMNPayee'].":".$bientry['BlockTestNet'],$mninfo) && ($mninfo[$bientry['BlockMNPayee'].":".$bientry['BlockTestNet']] < $bientry['BlockId']))
          || !(array_key_exists($bientry['BlockMNPayee'].":".$bientry['BlockTestNet'],$mninfo))) {
@@ -455,13 +456,15 @@ $sqlkeep = $sql;
       $mninfoinfo = false;
       if (count($bisql) > 0) {
         $sql = "INSERT INTO cmd_info_blocks (BlockTestNet, BlockId, BlockHash, BlockMNPayee, BlockMNValue, BlockSupplyValue, BlockMNPayed, "
-              ."BlockPoolPubKey, BlockMNProtocol, BlockTime, BlockDifficulty, BlockMNPayeeDonation, BlockMNPayeeExpected, BlockMNValueRatioExpected, IsSuperblock, SuperblockBudgetName)"
+              ."BlockPoolPubKey, BlockMNProtocol, BlockTime, BlockDifficulty, BlockMNPayeeDonation, BlockMNPayeeExpected, BlockMNValueRatioExpected, IsSuperblock, SuperblockBudgetName, "
+              ."BlockDarkSendTXCount, MemPoolDarkSendTXCount)"
               ." VALUES ".implode(',',$bisql)
               ." ON DUPLICATE KEY UPDATE BlockHash = VALUES(BlockHash), BlockMNPayee = VALUES(BlockMNPayee), BlockMNValue = VALUES(BlockMNValue),"
               ." BlockSupplyValue = VALUES(BlockSupplyValue), BlockMNPayed = VALUES(BlockMNPayed), BlockPoolPubKey = VALUES(BlockPoolPubKey),"
               ." BlockMNProtocol = VALUES(BlockMNProtocol), BlockTime = VALUES(BlockTime), BlockDifficulty = VALUES(BlockDifficulty),"
               ." BlockMNPayeeDonation = VALUES(BlockMNPayeeDonation), BlockMNPayeeExpected = VALUES(BlockMNPayeeExpected),"
-              ." BlockMNValueRatioExpected = VALUES(BlockMNValueRatioExpected), IsSuperblock = VALUES(IsSuperblock), SuperblockBudgetName = VALUES(SuperblockBudgetName)";
+              ." BlockMNValueRatioExpected = VALUES(BlockMNValueRatioExpected), IsSuperblock = VALUES(IsSuperblock), SuperblockBudgetName = VALUES(SuperblockBudgetName),"
+              ." BlockDarkSendTXCount = VALUES(BlockDarkSendTXCount), MemPoolDarkSendTXCount = VALUES(MemPoolDarkSendTXCount)";
 
         if ($result = $mysqli->query($sql)) {
           $biinfo = $mysqli->info;
@@ -474,7 +477,6 @@ $sqlkeep = $sql;
           $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mysqli->errno.': '.$mysqli->error)));
           return $response;
         }
-        $biinfo = $sqlkeep;
         $mninfores = 0;
         $debugtxt = "";
         $sql = "INSERT INTO cmd_info_masternode_lastpaid (MNTestNet, MNPubKey, MNLastPaidBlock) VALUES ".implode(',',$mninfosql)
@@ -1248,6 +1250,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
             $mninfo2info = "Nothing to do";
           }
 
+          $mnvotessql = array();
           foreach($payload['mnvotes'] as $mnvotes) {
             if (!array_key_exists($mnvotes['FromNodeUName'],$nodes)) {
               $response->setStatusCode(503, "Service Unavailable");
@@ -1711,7 +1714,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
             $sqlbudgetvotes = array();
             foreach($payload['mnbudgetvotes'] as $mnbudget) {
                 $sqlbudgetvotes[] = sprintf("(%d, '%s','%s',%d,'%s','%s',%d,%d)",
-                    $mnbudget["BudgetTesnet"],
+                    $mnbudget["BudgetTestnet"],
                     $mysqli->real_escape_string($mnbudget["BudgetId"]),
                     $mysqli->real_escape_string($mnbudget["MasternodeOutputHash"]),
                     $mnbudget["MasternodeOutputIndex"],
