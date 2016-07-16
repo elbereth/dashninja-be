@@ -573,7 +573,7 @@ $app->get('/budgetsexpected', function() use ($app,&$mysqli) {
     }
     else {
         // Retrieve all known final budgets
-        $sql = 'SELECT BudgetTestnet, BlockStart, BlockEnd, Proposals FROM cmd_budget_final WHERE VoteCount > 0 AND IsValid = 1 AND Status = "OK"';
+        $sql = 'SELECT BudgetTestnet, BlockStart, BlockEnd, Proposals FROM cmd_budget_final WHERE VoteCount > 0 AND (IsValid = 1 OR IsValidReason = "Older than current blockHeight") AND Status = "OK"';
         $mnbudgets = array(array(),array());
         $proposalsfinal = array(array(),array());
         if ($result = $mysqli->query($sql)) {
@@ -1534,21 +1534,30 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnuniqiptest',$uniquemnips,time());
           $activemncountarr[1] = $activemncount;
 
-          $sql = "SELECT StatKey, StatValue FROM cmd_stats_values WHERE StatKey = 'usdbtc' OR StatKey = 'btcdrk' OR StatKey = 'eurobtc'";
+          $sql = "SELECT StatKey, StatValue FROM cmd_stats_values WHERE StatKey = 'usdbtc' OR StatKey = 'btcdrk' OR StatKey = 'eurobtc' OR StatKey = 'mnactiveath' OR StatKey = 'mnactiveathtest'";
+          $tmp = array("btcdrk" => 0.0, "eurobtc" => 0.0, "usdbtc" => 0.0, "mnactiveath" => 0, "mnactiveathtest" => 0);
           if ($result = $mysqli->query($sql)) {
             while ($row = $result->fetch_assoc()) {
               $tmp[$row['StatKey']] = floatval($row['StatValue']);
             }
             $result->free();
-            $pricebtc = $tmp['btcdrk'];
-            $priceeur = $pricebtc*$tmp['eurobtc'];
-            $priceusd = $pricebtc*$tmp['usdbtc'];
+          }
+          $pricebtc = $tmp['btcdrk'];
+          $priceeur = $pricebtc*$tmp['eurobtc'];
+          $priceusd = $pricebtc*$tmp['usdbtc'];
+          $activemncountath = $tmp['mnactiveath'];
+          if ($activemncountarr[0] > $activemncountath) {
+            $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnactiveath',$activemncountarr[0],time());
+          }
+          $activemncountathtest = $tmp['mnactiveathtest'];
+          if ($activemncountarr[1] > $activemncountathtest) {
+              $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnactiveathtest',$activemncountarr[1],time());
           }
 
           foreach($testnetval as $testnet) {
             $sqlstats[] = sprintf("(%d,NOW(),%d,%d,%01.9f,%01.9f,%01.9f)",
                                        $testnet,
-                                       $activemncount[$testnet],
+                                       $activemncountarr[$testnet],
                                        $networkhashps[$testnet],
                                        $pricebtc,
                                        $priceusd,
@@ -1559,7 +1568,6 @@ $app->post('/ping', function() use ($app,&$mysqli) {
               $statkey .= "test";
             }
             $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$networkhashps[$testnet],time());
-
           }
 
           $statsinfo = false;
