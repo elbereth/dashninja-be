@@ -1195,55 +1195,74 @@ $app->post('/ping', function() use ($app,&$mysqli) {
 
           $mninfosql2 = array();
           $mnqueryexc2 = array();
+          $skipinfo = "";
           foreach($payload['mninfo2'] as $mninfo) {
-            $mniplong = ip2long($mninfo['MasternodeIP']);
-            if ($mniplong === false) {
-              $mniplong = 0;
-            }
-              $mnoutputhash = $mysqli->real_escape_string($mninfo['MasternodeOutputHash']);
-              $mninfosql2[] = sprintf("('%s', %d, %d, %d, '%s', %d, INET6_ATON('%s'), %d, %d, %d, %d)",
-                                      $mnoutputhash,
-                                      $mninfo['MasternodeOutputIndex'],
-                                      $mninfo['MasternodeTestNet'],
-                                      $mninfo['MasternodeProtocol'],
-                                      $mysqli->real_escape_string($mninfo['MasternodePubkey']),
-                                      $mniplong,
-                  $mysqli->real_escape_string($mninfo['MasternodeIP']),
-                  $mninfo['MasternodePort'],
-                                      $mninfo['MasternodeLastSeen'],
-                                      $mninfo['MasternodeActiveSeconds'],
-                                      $mninfo['MasternodeLastPaid']
-                                     );
-//              $mnqueryexc2[] = sprintf("!(MasternodeOutputHash = '%s' AND MasternodeOutputIndex = %d AND MasternodeTestNet = %d)",$mnoutputhash,$mninfo['MasternodeOutputIndex'],$mninfo['MasternodeTestNet']);
-              $mngeoip = geoip_record_by_name($mninfo['MasternodeIP']);
-              if ($mngeoip !== FALSE) {
-                 $mnipcountry = $mngeoip["country_name"];
-                 $mnipcountrycode = strtolower($mngeoip["country_code"]);
+              $mniplong = ip2long($mninfo['MasternodeIP']);
+              if ($mniplong === false) {
+                  $mniplong = 0;
               }
-              else {
-                 $mnipcountry = "Unknown";
-                 $mnipcountrycode = "__";
+              if (filter_var($mninfo['MasternodeIP'], FILTER_VALIDATE_IP) === false) {
+                  $mnipv6 = "::";
+                  if ((strlen($mninfo['MasternodeIP']) == 22) && (substr($mninfo['MasternodeIP'], -6) == ".onion")) {
+                      $mntor = substr($mninfo['MasternodeIP'], 0, 16);
+                  } else {
+                      $skipinfo .= "\nError with " . $mninfo['MasternodeOutputHash'] . "-" . $mninfo['MasternodeOutputIndex'] . " IP = " . $mninfo['MasternodeIP'];
+                      $mntor = false;
+                  }
+              } else {
+                  $mnipv6 = $mninfo['MasternodeIP'];
+                  $mntor = "";
               }
-              $sqlpc[] = sprintf("(INET6_ATON('%s'), %d, %d, 'unknown', '%s', '%s')",
-                  $mysqli->real_escape_string($mninfo['MasternodeIP']),
-                                     $mninfo['MasternodePort'],
-                                     $mninfo['MasternodeTestNet'],
-                                     $mnipcountry,
-                                     $mnipcountrycode
-                                    );
+              if ($mntor !== false) {
+                  $mnoutputhash = $mysqli->real_escape_string($mninfo['MasternodeOutputHash']);
+                  $mninfosql2[] = sprintf("('%s', %d, %d, %d, '%s', %d, INET6_ATON('%s'), '%s', %d, %d, %d, %d)",
+                      $mnoutputhash,
+                      $mninfo['MasternodeOutputIndex'],
+                      $mninfo['MasternodeTestNet'],
+                      $mninfo['MasternodeProtocol'],
+                      $mysqli->real_escape_string($mninfo['MasternodePubkey']),
+                      $mniplong,
+                      $mnipv6,
+                      $mysqli->real_escape_string($mntor),
+                      $mninfo['MasternodePort'],
+                      $mninfo['MasternodeLastSeen'],
+                      $mninfo['MasternodeActiveSeconds'],
+                      $mninfo['MasternodeLastPaid']
+                  );
+                  $mngeoip = geoip_record_by_name($mninfo['MasternodeIP']);
+                  if ($mngeoip !== FALSE) {
+                      $mnipcountry = $mngeoip["country_name"];
+                      $mnipcountrycode = strtolower($mngeoip["country_code"]);
+                  } else {
+                      $mnipcountry = "Unknown";
+                      $mnipcountrycode = "__";
+                  }
+                  $sqlpc[] = sprintf("(INET6_ATON('%s'), %d, %d, 'unknown', '%s', '%s')",
+                      $mysqli->real_escape_string($mninfo['MasternodeIP']),
+                      $mninfo['MasternodePort'],
+                      $mninfo['MasternodeTestNet'],
+                      $mnipcountry,
+                      $mnipcountrycode
+                  );
+              }
           }
 
           $mninfo2info = false;
           if (count($mninfosql2) > 0) {
             $sql = "INSERT INTO cmd_info_masternode2 (MasternodeOutputHash, MasternodeOutputIndex, MasternodeTestNet,"
-                  ." MasternodeProtocol, MasternodePubkey, MasternodeIP, MasternodeIPv6, MasternodePort, MasternodeLastSeen,"
-                  ." MasternodeActiveSeconds, MasternodeLastPaid) VALUE ".implode(',',$mninfosql2)
+                  ." MasternodeProtocol, MasternodePubkey, MasternodeIP, MasternodeIPv6, MasternodeTor, MasternodePort,"
+                  ." MasternodeLastSeen, MasternodeActiveSeconds, MasternodeLastPaid) VALUE ".implode(',',$mninfosql2)
                   ." ON DUPLICATE KEY UPDATE MasternodeActiveSeconds = VALUES(MasternodeActiveSeconds),"
                   ." MasternodeLastSeen = VALUES(MasternodeLastSeen), MasternodeProtocol = VALUES(MasternodeProtocol),"
                   ." MasternodePubkey = VALUES(MasternodePubkey), MasternodeIP = VALUES(MasternodeIP), MasternodeIPv6 = VALUES(MasternodeIPv6),"
-                  ." MasternodePort = VALUES(MasternodePort), MasternodeLastPaid = VALUES(MasternodeLastPaid)";
-            $result22 = $mysqli->query($sql);
-            $mninfo2info = $mysqli->info;
+                  ." MasternodeTor = VALUES(MasternodeTor), MasternodePort = VALUES(MasternodePort), MasternodeLastPaid = VALUES(MasternodeLastPaid)";
+
+            if ($result22 = $mysqli->query($sql)) {
+                $mninfo2info = $mysqli->info . $skipinfo;
+            }
+            else {
+                $mninfo2info = $mysqli->error;
+            }
             unset($mninfosql2);
           }
           else {
