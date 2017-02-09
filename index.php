@@ -1058,6 +1058,9 @@ $app->post('/ping', function() use ($app,&$mysqli) {
    || !array_key_exists('mnbudgetprojection',$payload) || !is_array($payload['mnbudgetprojection'])
    || !array_key_exists('mnbudgetfinal',$payload) || !is_array($payload['mnbudgetfinal'])
    || !array_key_exists('mnbudgetvotes',$payload) || !is_array($payload['mnbudgetvotes'])
+   || !array_key_exists('gobjproposals',$payload) || !is_array($payload['gobjproposals'])
+   || !array_key_exists('gobjtriggers',$payload) || !is_array($payload['gobjtriggers'])
+   || !array_key_exists('gobjvotes',$payload) || !is_array($payload['gobjvotes'])
    || !array_key_exists('mnlist',$payload) || !is_array($payload['mnlist'])
    || !array_key_exists('mnlist2',$payload) || !is_array($payload['mnlist2'])) {
     //Change the HTTP status
@@ -1769,6 +1772,195 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                 }
             }
 
+            // gobjects proposals 12.1+
+            $sqlgobjectproposals = array();
+            foreach($payload['gobjproposals'] as $proposal) {
+                $sqlgobjectproposals[] = sprintf("(%d, '%s','%s','%s',%F,%d,%d,'%s','%s',%d,%d,%d,%d,%d,%d,%d,%d,%d,'%s',NOW(),NOW())",
+                    $proposal["Testnet"],
+                    $mysqli->real_escape_string($proposal["hash"]),
+                    $mysqli->real_escape_string($proposal["name"]),
+                    $mysqli->real_escape_string($proposal["payment_address"]),
+                    floatval($proposal["payment_amount"]),
+                    intval($proposal["start_epoch"]),
+                    intval($proposal["end_epoch"]),
+                    $mysqli->real_escape_string($proposal["url"]),
+                    $mysqli->real_escape_string($proposal["gobject"]["CollateralHash"]),
+                    intval($proposal["gobject"]["AbsoluteYesCount"]),
+                    intval($proposal["gobject"]["YesCount"]),
+                    intval($proposal["gobject"]["NoCount"]),
+                    intval($proposal["gobject"]["AbstainCount"]),
+                    $proposal["gobject"]["fBlockchainValidity"] ? 1 : 0,
+                    $proposal["gobject"]["fCachedValid"] ? 1 : 0,
+                    $proposal["gobject"]["fCachedFunding"] ? 1 : 0,
+                    $proposal["gobject"]["fCachedDelete"] ? 1 : 0,
+                    $proposal["gobject"]["fCachedEndorsed"] ? 1 : 0,
+                    $mysqli->real_escape_string($proposal["gobject"]["IsValidReason"])
+                );
+            }
+            $gobjectproposalsinfo = false;
+            if (count($sqlgobjectproposals) > 0) {
+                $sql = "INSERT INTO `cmd_gobject_proposals` (GovernanceObjectTestnet, GovernanceObjectId, GovernanceObjectName, GovernanceObjectPaymentAddress,"
+                    ." GovernanceObjectPaymentAmount, GovernanceObjectEpochStart, GovernanceObjectEpochEnd, GovernanceObjectURL, GovernanceObjectCollateral,"
+                    ." GovernanceObjectVotesAbsoluteYes, GovernanceObjectVotesYes, GovernanceObjectVotesNo, GovernanceObjectVotesAbstain, GovernanceObjectBlockchainValidity,"
+                    ." GovernanceObjectCachedValid, GovernanceObjectCachedFunding, GovernanceObjectCachedDelete, GovernanceObjectCachedEndorsed, GovernanceObjectIsValidReason, FirstReported, LastReported)"
+                    ." VALUES ".implode(',',$sqlgobjectproposals)
+                    ." ON DUPLICATE KEY UPDATE GovernanceObjectName = VALUES(GovernanceObjectName), GovernanceObjectPaymentAddress = VALUES(GovernanceObjectPaymentAddress),"
+                    ." GovernanceObjectPaymentAmount = VALUES(GovernanceObjectPaymentAmount), GovernanceObjectEpochStart = VALUES(GovernanceObjectEpochStart),"
+                    ." GovernanceObjectEpochEnd = VALUES(GovernanceObjectEpochEnd), GovernanceObjectURL = VALUES(GovernanceObjectURL),"
+                    ." GovernanceObjectCollateral = VALUES(GovernanceObjectCollateral), GovernanceObjectVotesAbsoluteYes = VALUES(GovernanceObjectVotesAbsoluteYes),"
+                    ." GovernanceObjectVotesYes = VALUES(GovernanceObjectVotesYes), GovernanceObjectVotesNo = VALUES(GovernanceObjectVotesNo),"
+                    ." GovernanceObjectVotesAbstain = VALUES(GovernanceObjectVotesAbstain), GovernanceObjectBlockchainValidity = VALUES(GovernanceObjectBlockchainValidity),"
+                    ." GovernanceObjectCachedValid = VALUES(GovernanceObjectCachedValid), GovernanceObjectCachedFunding = VALUES(GovernanceObjectCachedFunding),"
+                    ." GovernanceObjectCachedDelete = VALUES(GovernanceObjectCachedDelete), GovernanceObjectCachedEndorsed = VALUES(GovernanceObjectCachedEndorsed),"
+                    ." GovernanceObjectIsValidReason = VALUES(GovernanceObjectIsValidReason), LastReported = VALUES(LastReported)";
+                if ($result70 = $mysqli->query($sql)) {
+                    $gobjectproposalsinfo = $mysqli->info;
+                    if (is_null($gobjectproposalsinfo)) {
+                        $gobjectproposalsinfo = true;
+                    }
+                }
+                else {
+                    $gobjectproposalsinfo = $mysqli->errno.": ".$mysqli->error;
+                }
+            }
+
+            // gobjects triggers 12.1+
+            $sqlgobjecttriggers = array();
+            $sqlgobjecttriggerspayments = array();
+            $sqlgobjecttriggerspaymentstrim = array();
+            foreach($payload['gobjtriggers'] as $triggers) {
+                $objhash = $mysqli->real_escape_string($triggers["hash"]);
+                $sqlgobjecttriggers[] = sprintf("(%d,'%s',%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,'%s',NOW(),NOW())",
+                    $triggers["Testnet"],
+                    $objhash,
+                    intval($triggers["event_block_height"]),
+                    intval($triggers["gobject"]["AbsoluteYesCount"]),
+                    intval($triggers["gobject"]["YesCount"]),
+                    intval($triggers["gobject"]["NoCount"]),
+                    intval($triggers["gobject"]["AbstainCount"]),
+                    $triggers["gobject"]["fBlockchainValidity"] ? 1 : 0,
+                    $triggers["gobject"]["fCachedValid"] ? 1 : 0,
+                    $triggers["gobject"]["fCachedFunding"] ? 1 : 0,
+                    $triggers["gobject"]["fCachedDelete"] ? 1 : 0,
+                    $triggers["gobject"]["fCachedEndorsed"] ? 1 : 0,
+                    $mysqli->real_escape_string($triggers["gobject"]["IsValidReason"])
+                );
+                $addr = explode("|",$triggers["payment_addresses"]);
+                $amnt = explode("|",$triggers["payment_amounts"]);
+                if (array_key_exists("proposal_hashes",$triggers)) {
+                  $hash = explode("|",$triggers["proposal_hashes"]);
+                }
+                // Temporary hack while sentinel is updated with proposals hashes
+                else {
+                  $hash = array();
+                  foreach($addr as $x) {
+                    $hash[] = "";
+                  }
+                }
+                if ((count($addr) == count($amnt)) && (count($addr) == count($hash))) {
+                  foreach($addr as $x => $address) {
+                      $sqlgobjecttriggerspayments[] = sprintf("(%d,'%s',%d,'%s',%F,'%s')",
+                          $triggers["Testnet"],
+                          $objhash,
+                          $x,
+                          $address,
+                          floatval($amnt[$x]),
+                          $mysqli->real_escape_string($hash[$x])
+                      );
+                  }
+                  $sqlgobjecttriggerspaymentstrim[] = sprintf("DELETE FROM cmd_gobject_triggers_payments WHERE GovernanceObjectTestnet = %d AND GovernanceObjectId = '%s' AND GovernanceObjectPaymentPosition >= %d",
+                     $triggers["Testnet"],
+                     $objhash,
+                     count($addr)
+                  );
+                }
+            }
+            $gobjecttriggersinfo = false;
+            $gobjecttriggersinfopayments = false;
+            $gobjecttriggersinfopaymentstrim = false;
+            if (count($gobjecttriggersinfo) > 0) {
+                $sql = "INSERT INTO `cmd_gobject_triggers` (GovernanceObjectTestnet, GovernanceObjectId, GovernanceObjectEventBlockHeight,"
+                    ." GovernanceObjectVotesAbsoluteYes, GovernanceObjectVotesYes, GovernanceObjectVotesNo, GovernanceObjectVotesAbstain, GovernanceObjectBlockchainValidity,"
+                    ." GovernanceObjectCachedValid, GovernanceObjectCachedFunding, GovernanceObjectCachedDelete, GovernanceObjectCachedEndorsed, GovernanceObjectIsValidReason, FirstReported, LastReported)"
+                    ." VALUES ".implode(',',$sqlgobjecttriggers)
+                    ." ON DUPLICATE KEY UPDATE GovernanceObjectEventBlockHeight = VALUES(GovernanceObjectEventBlockHeight),"
+                    ." GovernanceObjectVotesAbsoluteYes = VALUES(GovernanceObjectVotesAbsoluteYes),"
+                    ." GovernanceObjectVotesYes = VALUES(GovernanceObjectVotesYes), GovernanceObjectVotesNo = VALUES(GovernanceObjectVotesNo),"
+                    ." GovernanceObjectVotesAbstain = VALUES(GovernanceObjectVotesAbstain), GovernanceObjectBlockchainValidity = VALUES(GovernanceObjectBlockchainValidity),"
+                    ." GovernanceObjectCachedValid = VALUES(GovernanceObjectCachedValid), GovernanceObjectCachedFunding = VALUES(GovernanceObjectCachedFunding),"
+                    ." GovernanceObjectCachedDelete = VALUES(GovernanceObjectCachedDelete), GovernanceObjectCachedEndorsed = VALUES(GovernanceObjectCachedEndorsed),"
+                    ." GovernanceObjectIsValidReason = VALUES(GovernanceObjectIsValidReason), LastReported = VALUES(LastReported)";
+                if ($result702 = $mysqli->query($sql)) {
+                    $gobjecttriggersinfo = $mysqli->info;
+                    if (is_null($gobjecttriggersinfo)) {
+                        $gobjecttriggersinfo = true;
+                    }
+                }
+                else {
+                    $gobjecttriggersinfo = $mysqli->errno.": ".$mysqli->error;
+                }
+                if (count($sqlgobjecttriggerspayments) > 0) {
+                    $sql = "INSERT INTO `cmd_gobject_triggers_payments` (GovernanceObjectTestnet, GovernanceObjectId, GovernanceObjectPaymentPosition,"
+                        ." GovernanceObjectPaymentAddress, GovernanceObjectPaymentAmount, GovernanceObjectPaymentProposalHash)"
+                        ." VALUES ".implode(',',$sqlgobjecttriggerspayments)
+                        ." ON DUPLICATE KEY UPDATE GovernanceObjectPaymentAddress = VALUES(GovernanceObjectPaymentAddress),"
+                        ." GovernanceObjectPaymentAmount = VALUES(GovernanceObjectPaymentAmount),"
+                        ." GovernanceObjectPaymentProposalHash = VALUES(GovernanceObjectPaymentProposalHash)";
+                    if ($result703 = $mysqli->query($sql)) {
+                        $gobjecttriggersinfopayments = $mysqli->info;
+                        if (is_null($gobjecttriggersinfopayments)) {
+                            $gobjecttriggersinfopayments = true;
+                        }
+                        $gobjecttriggersinfopaymentstrim = array();
+                        foreach($sqlgobjecttriggerspaymentstrim as $sql) {
+                            if ($result703a = $mysqli->query($sql)) {
+                                $gobjecttriggersinfopaymentstrimtest = $mysqli->info;
+                                if (is_null($gobjecttriggersinfopaymentstrimtest)) {
+                                    $gobjecttriggersinfopaymentstrimtest = true;
+                                }
+                                $gobjecttriggersinfopaymentstrim[] = $gobjecttriggersinfopaymentstrimtest;
+                            } else {
+                                $gobjecttriggersinfopaymentstrim[] = $mysqli->errno . ": " . $mysqli->error;
+                            }
+                        }
+                    }
+                    else {
+                        $gobjecttriggersinfopayments = $mysqli->errno.": ".$mysqli->error;
+                    }
+                }
+            }
+
+            // gobjects votes 12.1+
+            $sqlobjectvotes = array();
+            foreach($payload['gobjvotes'] as $objectvote) {
+                $sqlobjectvotes[] = sprintf("(%d, '%s','%s',%d,'%s','%s',%d)",
+                    $objectvote["GovernanceObjectTestnet"],
+                    $mysqli->real_escape_string($objectvote["GovernanceObjectId"]),
+                    $mysqli->real_escape_string($objectvote["MasternodeOutputHash"]),
+                    $objectvote["MasternodeOutputIndex"],
+                    $mysqli->real_escape_string($objectvote["VoteHash"]),
+                    $mysqli->real_escape_string($objectvote["VoteValue"]),
+                    $objectvote["VoteTime"]
+                );
+            }
+            $objvotesinfo = false;
+            if (count($sqlobjectvotes) > 0) {
+                $sql = "INSERT INTO cmd_gobject_votes (GovernanceObjectTestnet, GovernanceObjectId, MasternodeOutputHash,"
+                    ." MasternodeOutputIndex, VoteHash, VoteValue, VoteTime)"
+                    ." VALUES ".implode(',',$sqlobjectvotes)
+                    ." ON DUPLICATE KEY UPDATE VoteHash = VALUES(VoteHash), VoteValue = VALUES(VoteValue), "
+                    ." VoteTime = VALUES(VoteTime)";
+                if ($result705 = $mysqli->query($sql)) {
+                    $objvotesinfo = $mysqli->info;
+                    if (is_null($objvotesinfo)) {
+                        $objvotesinfo = true;
+                    }
+                }
+                else {
+                    $objvotesinfo = $mysqli->error;
+                }
+            }
+
 
             //Change the HTTP status
           $response->setStatusCode(202, "Accepted");
@@ -1777,6 +1969,11 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                                                                             'mnbudgetfinal' => $mnbudgetfinalinfo,
                                                                             'mnbudgetprojection' => $mnbudgetprojectioninfo,
                                                                             'mnbudgetvotes' => $mnbudgetvotesinfo,
+                                                                            'gobjproposals' => $gobjectproposalsinfo,
+                                                                            'gobjvotes' => $objvotesinfo,
+                                                                            'gobjtriggers' => $gobjecttriggersinfo,
+                                                                            'gobjtriggerspayments' => $gobjecttriggersinfopayments,
+                                                                            'gobjtriggerspaymentstrim' => implode("|",$gobjecttriggersinfopaymentstrim),
                                                                             'mnlist' => $mnlistinfo,
                                                                             'mnlist2' => $mnlist2info,
                                                                             'mninfo' => $mninfoinfo,
