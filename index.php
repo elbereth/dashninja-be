@@ -358,6 +358,7 @@ $app->post('/blocks', function() use ($app,&$mysqli) {
       }
 
       $bisql = array();
+      $bsbsql = array();
       $mninfo = array();
       $sqlwheretemplate = "(BlockHeight = %d AND BlockTestNet = %d)";
       $sqlwhere = array();
@@ -421,7 +422,7 @@ EOT;
         }
 
       foreach($payload['blocksinfo'] as $bientry) {
-        $bisql[] = sprintf("(%d,%d,'%s','%s',%.9f,%.9f,%d,'%s',%d,%d,%.9f,%d,'%s',%.9f,%d,'%s',%d,%d)",$bientry['BlockTestNet'],
+        $bisql[] = sprintf("(%d,%d,'%s','%s',%.9f,%.9f,%d,'%s',%d,%d,%.9f,%d,'%s',%.9f,%d,'%s',%d,%d,%d,%.9f)",$bientry['BlockTestNet'],
                                                      $bientry['BlockId'],
                                                      $mysqli->real_escape_string($bientry['BlockHash']),
                                                      $mysqli->real_escape_string($bientry['BlockMNPayee']),
@@ -438,11 +439,22 @@ EOT;
             $bientry['IsSuperblock'],
             $mysqli->real_escape_string($bientry['SuperblockBudgetName']),
             $bientry['BlockDarkSendTXCount'],
-            $bientry['MemPoolDarkSendTXCount']
+            $bientry['MemPoolDarkSendTXCount'],
+            $bientry['SuperblockBudgetPayees'],
+            $bientry['SuperblockBudgetAmount']
         );
         if ((array_key_exists($bientry['BlockMNPayee'].":".$bientry['BlockTestNet'],$mninfo) && ($mninfo[$bientry['BlockMNPayee'].":".$bientry['BlockTestNet']] < $bientry['BlockId']))
          || !(array_key_exists($bientry['BlockMNPayee'].":".$bientry['BlockTestNet'],$mninfo))) {
           $mninfo[$bientry['BlockMNPayee'].":".$bientry['BlockTestNet']] = $bientry['BlockId'];
+        }
+        if (array_key_exists("SuperblockDetails",$bientry) && (is_array($bientry["SuperblockDetails"])) && (count($bientry["SuperblockDetails"]) > 0)) {
+            foreach($bientry["SuperblockDetails"] as $item) {
+                $bsbsql[] = sprintf("(%d,%d,'%s',%.9f,'%s')",$bientry['BlockTestNet'],
+                    $bientry['BlockId'],
+                    $mysqli->real_escape_string($item['GovernanceObjectPaymentAddress']),
+                    floatval($item['GovernanceObjectPaymentAmount']),
+                    $mysqli->real_escape_string($item['GovernanceObjectPaymentProposalHash']));
+            }
         }
       }
       $mninfosql = array();
@@ -457,14 +469,15 @@ EOT;
       if (count($bisql) > 0) {
         $sql = "INSERT INTO cmd_info_blocks (BlockTestNet, BlockId, BlockHash, BlockMNPayee, BlockMNValue, BlockSupplyValue, BlockMNPayed, "
               ."BlockPoolPubKey, BlockMNProtocol, BlockTime, BlockDifficulty, BlockMNPayeeDonation, BlockMNPayeeExpected, BlockMNValueRatioExpected, IsSuperblock, SuperblockBudgetName, "
-              ."BlockDarkSendTXCount, MemPoolDarkSendTXCount)"
+              ."BlockDarkSendTXCount, MemPoolDarkSendTXCount, SuperblockBudgetPayees, SuperblockBudgetAmount)"
               ." VALUES ".implode(',',$bisql)
               ." ON DUPLICATE KEY UPDATE BlockHash = VALUES(BlockHash), BlockMNPayee = VALUES(BlockMNPayee), BlockMNValue = VALUES(BlockMNValue),"
               ." BlockSupplyValue = VALUES(BlockSupplyValue), BlockMNPayed = VALUES(BlockMNPayed), BlockPoolPubKey = VALUES(BlockPoolPubKey),"
               ." BlockMNProtocol = VALUES(BlockMNProtocol), BlockTime = VALUES(BlockTime), BlockDifficulty = VALUES(BlockDifficulty),"
               ." BlockMNPayeeDonation = VALUES(BlockMNPayeeDonation), BlockMNPayeeExpected = VALUES(BlockMNPayeeExpected),"
               ." BlockMNValueRatioExpected = VALUES(BlockMNValueRatioExpected), IsSuperblock = VALUES(IsSuperblock), SuperblockBudgetName = VALUES(SuperblockBudgetName),"
-              ." BlockDarkSendTXCount = VALUES(BlockDarkSendTXCount), MemPoolDarkSendTXCount = VALUES(MemPoolDarkSendTXCount)";
+              ." BlockDarkSendTXCount = VALUES(BlockDarkSendTXCount), MemPoolDarkSendTXCount = VALUES(MemPoolDarkSendTXCount),"
+              ." SuperblockBudgetPayees = VALUES(SuperblockBudgetPayees), SuperblockBudgetAmount = VALUES(SuperblockBudgetAmount)";
 
         if ($result = $mysqli->query($sql)) {
           $biinfo = $mysqli->info;
@@ -539,10 +552,29 @@ EOT;
         }
       }
 
+      $superblockinfo = false;
+      if (count($bsbsql) > 0) {
+          $sql = "INSERT INTO cmd_info_blocks_superblockpayments (BlockTestNet, BlockId, GovernanceObjectPaymentAddress, GovernanceObjectPaymentAmount, GovernanceObjectPaymentProposalHash)"
+              . " VALUES " . implode(',', $bsbsql)
+              . " ON DUPLICATE KEY UPDATE GovernanceObjectPaymentAddress = VALUES(GovernanceObjectPaymentAddress), GovernanceObjectPaymentAmount = VALUES(GovernanceObjectPaymentAmount)";
+
+          if ($result = $mysqli->query($sql)) {
+              $superblockinfo = $mysqli->info;
+              if (is_null($biinfo)) {
+                  $superblockinfo = true;
+              }
+          } else {
+              $response->setStatusCode(503, "Service Unavailable");
+              $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mysqli->errno . ': ' . $mysqli->error)));
+              return $response;
+          }
+      }
+
       //Change the HTTP status
       $response->setStatusCode(202, "Accepted");
       $response->setJsonContent(array('status' => 'OK', 'data' => array('blockshistory' => $bhinfo,
                                                                         'blocksinfo' => $biinfo,
+                                                                        'superblockdetailsinfo' => $superblockinfo,
                                                                         'mninfo' => $mninfoinfo)));
 
     }
@@ -622,6 +654,70 @@ $app->get('/budgetsexpected', function() use ($app,&$mysqli) {
             $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mysqli->errno . ': ' . $mysqli->error)));
 
         }
+        }
+        else {
+            $response->setStatusCode(503, "Service Unavailable");
+            $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mysqli->errno.': '.$mysqli->error)));
+        }
+    }
+    return $response;
+
+});
+
+// ============================================================================
+// SUPERBLOCK PAYMENTS EXPECTED (for dmnblockparser)
+// ----------------------------------------------------------------------------
+// End-point to retrieve all expected superblocks payments (v12.1+)
+// HTTP method:
+//   GET
+// Parameters:
+//   None
+// ============================================================================
+$app->get('/superblocksexpected', function() use ($app,&$mysqli) {
+
+    //Create a response
+    $response = new Phalcon\Http\Response();
+
+    if (!array_key_exists('CONTENT_LENGTH',$_SERVER) || (intval($_SERVER['CONTENT_LENGTH']) != 0)) {
+        //Change the HTTP status
+        $response->setStatusCode(400, "Bad Request");
+        //Send errors to the client
+        $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('Payload (or CONTENT_LENGTH) is missing')));
+    }
+    else {
+        // Retrieve all known final budgets
+        $sql = 'SELECT cgot.GovernanceObjectTestnet TestNet, cgot.GovernanceObjectEventBlockHeight BlockHeight, cgotp.GovernanceObjectPaymentAddress '
+              .'ProposalPaymentAddress, cgotp.GovernanceObjectPaymentAmount ProposalPaymentAmount, cgotp.GovernanceObjectPaymentProposalHash '
+              .'ProposalHash FROM cmd_gobject_triggers cgot LEFT OUTER JOIN cmd_gobject_triggers_payments cgotp '
+              .'ON cgot.GovernanceObjectTestnet = cgotp.GovernanceObjectTestnet AND cgot.GovernanceObjectId = cgotp.GovernanceObjectId '
+              .'WHERE cgot.GovernanceObjectVotesAbsoluteYes > 0 AND cgot.GovernanceObjectCachedFunding = 1';
+        $mnsuperblocks = array(array(),array());
+        if ($result = $mysqli->query($sql)) {
+            while($row = $result->fetch_assoc()){
+                $row["TestNet"] = intval($row["TestNet"]);
+                $row["BlockHeight"] = intval($row["BlockHeight"]);
+                if (array_key_exists($row['BlockHeight'],$mnsuperblocks[$row["TestNet"]])) {
+                    $mnsuperblocks[$row["TestNet"]][$row["BlockHeight"]]["ProposalPayments"][] = array(
+                            "ProposalPaymentAddress" => $row["ProposalPaymentAddress"],
+                            "ProposalPaymentAmount" => $row["ProposalPaymentAmount"],
+                            "ProposalHash" => $row["ProposalHash"]
+                    );
+                }
+                else {
+                    $mnsuperblocks[$row["TestNet"]][$row["BlockHeight"]] = array(
+                      "BlockHeight" => $row["BlockHeight"],
+                      "ProposalPayments" => array(array(
+                          "ProposalPaymentAddress" => $row["ProposalPaymentAddress"],
+                          "ProposalPaymentAmount" => $row["ProposalPaymentAmount"],
+                          "ProposalHash" => $row["ProposalHash"]
+                      ))
+                    );
+                }
+            }
+
+            //Change the HTTP status
+            $response->setStatusCode(200, "OK");
+            $response->setJsonContent(array('status' => 'OK', 'data' => array('superblocksexpected' => $mnsuperblocks)));
         }
         else {
             $response->setStatusCode(503, "Service Unavailable");
@@ -1518,6 +1614,8 @@ $app->post('/ping', function() use ($app,&$mysqli) {
 
           $activemncount = array(0,0);
           $networkhashps = array(0,0);
+          $governancenextsuperblock = array(0,0);
+          $governancebudget = array(0,0);
           $pricebtc = 0.0;
           $priceeuro = 0.0;
           $priceusd = 0.0;
@@ -1527,6 +1625,12 @@ $app->post('/ping', function() use ($app,&$mysqli) {
             foreach($statarr as $statid => $statval) {
               if ($statid == "networkhashps") {
                 $networkhashps[$testnet] = intval($statval);
+              }
+              elseif ($statid == "governancenextsuperblock") {
+                $governancenextsuperblock[$testnet] = intval($statval);
+              }
+              elseif ($statid == "governancebudget") {
+                $governancebudget[$testnet] = floatval($statval);
               }
             }
           }
@@ -1590,6 +1694,16 @@ $app->post('/ping', function() use ($app,&$mysqli) {
               $statkey .= "test";
             }
             $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$networkhashps[$testnet],time());
+            $statkey = "governancesb";
+            if ($testnet == 1) {
+              $statkey .= "test";
+            }
+            $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$governancenextsuperblock[$testnet],time());
+            $statkey = "governancebudget";
+            if ($testnet == 1) {
+                $statkey .= "test";
+            }
+            $sqlstats2[] = sprintf("('%s','%s',%01.9f,'dashninja')",$statkey,$governancebudget[$testnet],time());
           }
 
           $statsinfo = false;
