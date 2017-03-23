@@ -1,4 +1,7 @@
 # Dash Ninja Back-End (dashninja-be)
+
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/f4a2d60364cd4c1cb34c81e23453f62a)](https://www.codacy.com/app/elbereth/dashninja-be?utm_source=github.com&utm_medium=referral&utm_content=elbereth/dashninja-be&utm_campaign=badger)
+
 By Alexandre (aka elbereth) Devilliers
 
 Check the running live website at https://dashninja.pl
