@@ -422,6 +422,11 @@ EOT;
         }
 
       foreach($payload['blocksinfo'] as $bientry) {
+          // Force actual 50% is value is 0% by mistake (block history is wrong, node was down at that time probably...)
+          if ($blockhist[intval($bientry['BlockId'])]['BlockMNValueRatioExpected'] <= 0) {
+              $blockhist[intval($bientry['BlockId'])]['BlockMNValueRatioExpected'] = 0.5;
+          }
+
         $bisql[] = sprintf("(%d,%d,'%s','%s',%.9f,%.9f,%d,'%s',%d,%d,%.9f,%d,'%s',%.9f,%d,'%s',%d,%d,%d,%.9f)",$bientry['BlockTestNet'],
                                                      $bientry['BlockId'],
                                                      $mysqli->real_escape_string($bientry['BlockHash']),
@@ -735,11 +740,9 @@ function dashninja_masternodes_get($mysqli, $testnet = 0, $protocol = 0) {
   // Run the query
   if ($result = $mysqli->query($sqlmaxprotocol)) {
     $row = $result->fetch_assoc();
+    $protocol = 0;
     if ($row !== false) {
       $protocol = $row['Protocol'];
-    }
-    else {
-      $protocol = 0;
     }
   }
   else {
@@ -1694,16 +1697,20 @@ $app->post('/ping', function() use ($app,&$mysqli) {
               $statkey .= "test";
             }
             $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$networkhashps[$testnet],time());
-            $statkey = "governancesb";
-            if ($testnet == 1) {
-              $statkey .= "test";
+            if ((isset($governancenextsuperblock[$testnet])) && (!is_null($governancenextsuperblock[$testnet])) && ($governancenextsuperblock[$testnet] > 0)) {
+                $statkey = "governancesb";
+                if ($testnet == 1) {
+                    $statkey .= "test";
+                }
+                $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$governancenextsuperblock[$testnet],time());
             }
-            $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$governancenextsuperblock[$testnet],time());
-            $statkey = "governancebudget";
-            if ($testnet == 1) {
-                $statkey .= "test";
-            }
-            $sqlstats2[] = sprintf("('%s','%s',%01.9f,'dashninja')",$statkey,$governancebudget[$testnet],time());
+              if ((isset($governancebudget[$testnet])) && (!is_null($governancebudget[$testnet])) && ($governancebudget[$testnet] > 0)) {
+                  $statkey = "governancebudget";
+                  if ($testnet == 1) {
+                      $statkey .= "test";
+                  }
+                  $sqlstats2[] = sprintf("('%s','%s',%01.9f,'dashninja')", $statkey, $governancebudget[$testnet], time());
+              }
           }
 
           $statsinfo = false;
