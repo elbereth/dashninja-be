@@ -1999,7 +1999,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
             $gobjecttriggersinfo = false;
             $gobjecttriggersinfopayments = false;
             $gobjecttriggersinfopaymentstrim = false;
-            if (count($gobjecttriggersinfo) > 0) {
+            if (count($sqlgobjecttriggers) > 0) {
                 $sql = "INSERT INTO `cmd_gobject_triggers` (GovernanceObjectTestnet, GovernanceObjectId, GovernanceObjectEventBlockHeight,"
                     ." GovernanceObjectVotesAbsoluteYes, GovernanceObjectVotesYes, GovernanceObjectVotesNo, GovernanceObjectVotesAbstain, GovernanceObjectBlockchainValidity,"
                     ." GovernanceObjectCachedValid, GovernanceObjectCachedFunding, GovernanceObjectCachedDelete, GovernanceObjectCachedEndorsed, GovernanceObjectIsValidReason, FirstReported, LastReported)"

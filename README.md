@@ -1,7 +1,10 @@
 # Dash Ninja Back-End (dashninja-be)
 By Alexandre (aka elbereth) Devilliers
 
-Check the running live website at https://dashninja.pl
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/f4a2d60364cd4c1cb34c81e23453f62a)](https://www.codacy.com/app/elbereth/dashninja-be?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=elbereth/dashninja-be&amp;utm_campaign=Badge_Grade)
+[![Code Climate](https://codeclimate.com/github/elbereth/dashninja-be/badges/gpa.svg)](https://codeclimate.com/github/elbereth/dashninja-be)
+
+Check the running live website at https://www.dashninja.pl
 
 This is part of what makes the Dash Ninja monitoring application.
 It contains:
