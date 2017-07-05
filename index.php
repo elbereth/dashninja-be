@@ -1900,7 +1900,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                     $proposal["Testnet"],
                     $mysqli->real_escape_string($proposal["hash"]),
                     $mysqli->real_escape_string($proposal["name"]),
-                    $mysqli->real_escape_string($proposal["payment_address"]),
+                    $mysqli->real_escape_string(substr(trim($proposal["payment_address"]),0,34)),
                     floatval($proposal["payment_amount"]),
                     intval($proposal["start_epoch"]),
                     intval($proposal["end_epoch"]),
@@ -1941,7 +1941,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                     }
                 }
                 else {
-                    $gobjectproposalsinfo = $mysqli->errno.": ".$mysqli->error;
+                    $gobjectproposalsinfo = $mysqli->errno.": ".$mysqli->error.' '.$sql;
                 }
             }
 
