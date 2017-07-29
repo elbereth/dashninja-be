@@ -112,7 +112,7 @@ $eventManager->attach('micro', function($event, $app) use ($mysqli) {
       if (is_null($authinfo)) {
         $response = new Phalcon\Http\Response();
         $response->setStatusCode(401, "Unauthorized");
-        $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('TLS client certificate did not match a known hub')));
+        $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('TLS client certificate did not match a known hub',$_SERVER['DN'],$_SERVER['REMOTE_ADDR'],$sql,$sqlx)));
         $response->send();
         $authinfo = false;
         return false;
@@ -1900,7 +1900,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                     $proposal["Testnet"],
                     $mysqli->real_escape_string($proposal["hash"]),
                     $mysqli->real_escape_string($proposal["name"]),
-                    $mysqli->real_escape_string(substr(trim($proposal["payment_address"]),0,34)),
+                    substr(trim($mysqli->real_escape_string($proposal["payment_address"])),0,34),
                     floatval($proposal["payment_amount"]),
                     intval($proposal["start_epoch"]),
                     intval($proposal["end_epoch"]),
@@ -1941,7 +1941,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                     }
                 }
                 else {
-                    $gobjectproposalsinfo = $mysqli->errno.": ".$mysqli->error.' '.$sql;
+                    $gobjectproposalsinfo = $mysqli->errno.": ".$mysqli->error;
                 }
             }
 
