@@ -298,7 +298,7 @@ $app->post('/blocks', function() use ($app,&$mysqli) {
   }
   else {
     // Retrieve all known nodes for current hub
-    $result = dashninja_cmd_getnodes($mysqli,$authinfo['HubId']);
+    $result = dashninja_cmd_getnodes($mysqli,$authinfo['HubId'],0);
     $numnodes = 0;
     $nodes = array();
     if (count($result) > 0) {
@@ -306,6 +306,13 @@ $app->post('/blocks', function() use ($app,&$mysqli) {
         $numnodes++;
         $nodes[$nodename] = $row['NodeId'];
       }
+    }
+    $result = dashninja_cmd_getnodes($mysqli,$authinfo['HubId'],1);
+    if (count($result) > 0) {
+        foreach($result as $nodename => $row){
+            $numnodes++;
+            $nodes[$nodename] = $row['NodeId'];
+        }
     }
     if ($numnodes == 0) {
       $response->setStatusCode(503, "Service Unavailable");
@@ -1096,15 +1103,15 @@ $app->get('/nodes', function() use ($app,&$mysqli) {
 
 });
 
-function dashninja_cmd_getnodes($mysqli,$hubid = -1) {
+function dashninja_cmd_getnodes($mysqli,$hubid = -1,$testnet = 0) {
 
-  $cachefnam = CACHEFOLDER.sprintf("dashninja_cmd_getnodes_%d",$hubid);
+  $cachefnam = CACHEFOLDER.sprintf("dashninja_cmd_getnodes_%d_%d",$hubid,$testnet);
   $cachevalid = (is_readable($cachefnam) && ((filemtime($cachefnam)+3600)>=time()));
   if ($cachevalid) {
     $nodes = unserialize(file_get_contents($cachefnam));
   }
   else {
-    $sql = "SELECT n.NodeId NodeId, NodeName, NodeTestNet, NodeEnabled, NodeType FROM cmd_nodes n, cmd_hub_nodes h WHERE n.NodeId = h.NodeId";
+    $sql = sprintf("SELECT n.NodeId NodeId, NodeName, NodeTestNet, NodeEnabled, NodeType FROM cmd_nodes n, cmd_hub_nodes h WHERE n.NodeId = h.NodeId AND n.NodeTestNet = %d",intval($testnet));
     if ($hubid > -1) {
       $sql = sprintf($sql." AND h.HubId = %d",$hubid);
     }
@@ -1148,7 +1155,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
   $payload = json_decode($payload,true);
 
   if (!array_key_exists('CONTENT_LENGTH',$_SERVER) || (intval($_SERVER['CONTENT_LENGTH']) == 0)
-   || !array_key_exists('nodes',$payload)
+   || !array_key_exists('nodes',$payload) || !array_key_exists('testnet',$payload)
    || !array_key_exists('stats',$payload) || !is_array($payload['stats'])
    || !array_key_exists('mninfo',$payload) || !is_array($payload['mninfo'])
    || !array_key_exists('mninfo2',$payload) || !is_array($payload['mninfo2'])
@@ -1170,52 +1177,66 @@ $app->post('/ping', function() use ($app,&$mysqli) {
   }
   else {
     // Retrieve all known nodes for current hub
-    $nodes = dashninja_cmd_getnodes($mysqli,$authinfo['HubId']);
+    $istestnet = intval($payload['testnet']);
+    $nodes = dashninja_cmd_getnodes($mysqli,$authinfo['HubId'],$istestnet);
     $numnodes = count($nodes);
     if ($numnodes > 0) {
       if ($numnodes == count($payload['nodes'])) {
         $sqlstatus = array();
         $sqlspork = array();
-        foreach($payload['nodes'] as $uname => $node) {
-          if (!array_key_exists($uname,$nodes)) {
-              $response->setStatusCode(503, "Service Unavailable");
-              $response->setJsonContent(array('status' => 'ERROR', 'messages' => array("Unknown node reported")));
-              return $response;
+          $sporkprunepernodeid = array();
+          $sqlsporksprune = null;
+
+          foreach($payload['nodes'] as $uname => $node) {
+              if (!array_key_exists($uname, $nodes)) {
+                  $response->setStatusCode(503, "Service Unavailable");
+                  $response->setJsonContent(array('status' => 'ERROR', 'messages' => array("Unknown node reported")));
+                  return $response;
+              }
+              $sqlstatus[] = sprintf("(%d,'%s',%d,%d,%d,'%s',%d,'%s','%s',NOW())",
+                  $nodes[$uname]['NodeId'],
+                  $mysqli->real_escape_string($node['ProcessStatus']),
+                  $node['Version'],
+                  $node['Protocol'],
+                  $node['Blocks'],
+                  $mysqli->real_escape_string($node['LastBlockHash']),
+                  $node['Connections'],
+                  $mysqli->real_escape_string($node['Country']),
+                  $mysqli->real_escape_string($node['CountryCode'])
+              );
+              if (array_key_exists("Spork", $node) && is_array($node['Spork'])) {
+                  $sporkprunepernodeid[intval($nodes[$uname]['NodeId'])] = array();
+                  foreach ($node['Spork'] as $sporkname => $sporkvalue) {
+                      $sporknameesc = $mysqli->real_escape_string($sporkname);
+                      $sporkprunepernodeid[intval($nodes[$uname]['NodeId'])][] = sprintf('(SporkName <> "%s")', $sporknameesc);
+                      $sqlspork[] = sprintf("(%d,'%s',%d)",
+                          $nodes[$uname]['NodeId'],
+                          $mysqli->real_escape_string($sporknameesc),
+                          $sporkvalue
+                      );
+                  }
+              }
           }
-            $ip = $mysqli->real_escape_string($node['IP']);
-            if ($ip == "") {
-                $ip = "0.0.0.0";
-            }
-          $sqlstatus[] = sprintf("(%d,'%s',%d,%d,%d,'%s',%d,inet_aton('%s'),%d,'%s','%s',NOW())",
-                                  $nodes[$uname]['NodeId'],
-                                  $mysqli->real_escape_string($node['ProcessStatus']),
-                                  $node['Version'],
-                                  $node['Protocol'],
-                                  $node['Blocks'],
-                                  $mysqli->real_escape_string($node['LastBlockHash']),
-                                  $node['Connections'],
-                                  $ip,
-                                  $node['Port'],
-                                  $mysqli->real_escape_string($node['Country']),
-                                  $mysqli->real_escape_string($node['CountryCode'])
-                                );
-            if (array_key_exists("Spork",$node) && is_array($node['Spork'])) {
-                foreach ($node['Spork'] as $sporkname => $sporkvalue) {
-                    $sqlspork[] = sprintf("(%d,'%s',%d)",
-                        $nodes[$uname]['NodeId'],
-                        $mysqli->real_escape_string($sporkname),
-                        $sporkvalue
-                    );
-                }
-            }
-        }
+
+          $debugspork = var_export($sporkprunepernodeid,true)."\n";
+          $sporksprune = array();
+          foreach ($sporkprunepernodeid as $nodeid => $sporks) {
+              if (count($sporks) > 0) {
+                  $sporksprune[] = sprintf("(NodeID = %d AND ".implode(" AND ",$sporks).")",$nodeid);
+              }
+              else {
+                  $sporksprune[] = sprintf("(NodeID = %d)",$nodeid);
+              }
+          }
+          $sqlsporksprune = "DELETE FROM cmd_nodes_spork WHERE ".implode(" OR ",$sporksprune);
+          unset($sporksprune,$sporkprunepernodeid);
 
         $sql = "INSERT INTO cmd_nodes_status (NodeId, NodeProcessStatus, NodeVersion, NodeProtocol, NodeBlocks, NodeLastBlockHash,"
-                                   ." NodeConnections, NodeIP, NodePort, NodeCountry, NodeCountryCode, LastUpdate)"
+                                   ." NodeConnections, NodeCountry, NodeCountryCode, LastUpdate)"
                            ." VALUES ".implode(',',$sqlstatus)
             ." ON DUPLICATE KEY UPDATE NodeProcessStatus = VALUES(NodeProcessStatus), NodeVersion = VALUES(NodeVersion),"
             ." NodeProtocol = VALUES(NodeProtocol), NodeBlocks = VALUES(NodeBlocks), NodeLastBlockHash = VALUES(NodeLastBlockHash),"
-            ." NodeConnections = VALUES(NodeConnections), NodeIP = VALUES(NodeIP), NodePort = VALUES(NodePort), NodeCountry = VALUES(NodeCountry),"
+            ." NodeConnections = VALUES(NodeConnections), NodeCountry = VALUES(NodeCountry),"
             ." NodeCountryCode = VALUES(NodeCountryCode), LastUpdate = NOW()";
 
         if ($result = $mysqli->query($sql)) {
@@ -1224,7 +1245,15 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           $sql = "INSERT INTO cmd_nodes_spork (NodeID, SporkName, SporkValue) VALUE ".implode(',',$sqlspork)
                 ." ON DUPLICATE KEY UPDATE SporkValue = VALUES(SporkValue)";
           $result = $mysqli->query($sql);
-          $sporkinfo = $mysqli->info;
+          $sporkinfo = "Insert: ".$mysqli->info." / Delete: ";
+
+          if (is_null($sqlsporksprune)) {
+             $sporkinfo .= "Nothing to prune";
+          }
+          else {
+             $result = $mysqli->query($sqlsporksprune);
+             $sporkinfo .= $mysqli->info;
+          }
 
           $mninfosql = array();
           $mnqueryexc = array();
@@ -1417,7 +1446,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
             }
           }
 
-          $sql = "SELECT MasternodeIP, MasternodePort, MNTestNet, MNPubKey FROM cmd_info_masternode_pubkeys WHERE ".implode(' AND ',$mnpkexc)." AND MNLastReported != 0";
+          $sql = sprintf("SELECT MasternodeIP, MasternodePort, MNTestNet, MNPubKey FROM cmd_info_masternode_pubkeys WHERE ".implode(' AND ',$mnpkexc)." AND MNLastReported != 0 AND MNTestNet = %d",$istestnet);
           $unlistedpk = array();
           if ($result1c = $mysqli->query($sql)) {
             while($row = $result1c->fetch_assoc()){
@@ -1457,7 +1486,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
             }
           }
 
-          $sql = "SELECT MasternodeIP, MasternodePort, MNTestNet, MNPubKey FROM cmd_info_masternode_donation WHERE ".implode(' AND ',$mndonationexc)." AND MNLastReported != 0";
+          $sql = "SELECT MasternodeIP, MasternodePort, MNTestNet, MNPubKey FROM cmd_info_masternode_donation WHERE ".implode(' AND ',$mndonationexc).sprintf(" AND MNLastReported != 0 AND MNTestNet = %d",$istestnet);
           $unlisteddonation = array();
           if ($result1d = $mysqli->query($sql)) {
             while($row = $result1d->fetch_assoc()){
@@ -1485,7 +1514,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           foreach($nodes as $node) {
             $curnodes[intval($node['NodeTestNet'])][] = $node['NodeId'];
           }
-          $sql = "SELECT MasternodeIP, MasternodePort, MNTestNet FROM cmd_info_masternode";
+          $sql = sprintf("SELECT MasternodeIP, MasternodePort, MNTestNet FROM cmd_info_masternode WHERE MNTestNet = %d",$istestnet);
           $unlistedmn = array();
           if ($result1b = $mysqli->query($sql)) {
             while($row = $result1b->fetch_assoc()){
@@ -1544,7 +1573,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
             unset($mnlistsql);
           }
 
-          $sql = "SELECT MasternodeOutputHash, MasternodeOutputIndex, MasternodeTestNet FROM cmd_info_masternode2";
+          $sql = sprintf("SELECT MasternodeOutputHash, MasternodeOutputIndex, MasternodeTestNet FROM cmd_info_masternode2 WHERE MasternodeTestNet = %d",$istestnet);
           $unlistedmn2 = array();
           if ($result1xb = $mysqli->query($sql)) {
             while($row = $result1xb->fetch_assoc()){
@@ -1616,55 +1645,46 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           }
 
           $activemncount = array(0,0);
-          $networkhashps = array(0,0);
-          $governancenextsuperblock = array(0,0);
-          $governancebudget = array(0,0);
+          $networkhashps = 0;
+          $governancenextsuperblock = 0;
+          $governancebudget = 0;
           $pricebtc = 0.0;
           $priceeuro = 0.0;
           $priceusd = 0.0;
-          $testnetval = array();
-          foreach($payload['stats'] as $testnet => $statarr) {
-            $testnetval[] = $testnet;
-            foreach($statarr as $statid => $statval) {
-              if ($statid == "networkhashps") {
-                $networkhashps[$testnet] = intval($statval);
-              }
-              elseif ($statid == "governancenextsuperblock") {
-                $governancenextsuperblock[$testnet] = intval($statval);
-              }
-              elseif ($statid == "governancebudget") {
-                $governancebudget[$testnet] = floatval($statval);
-              }
+          foreach($payload['stats'] as $statid => $statval) {
+            if ($statid == "networkhashps") {
+              $networkhashps = intval($statval);
+            }
+            elseif ($statid == "governancenextsuperblock") {
+              $governancenextsuperblock = intval($statval);
+            }
+            elseif ($statid == "governancebudget") {
+              $governancebudget = floatval($statval);
             }
           }
 
-          $sql = "SELECT MNTestNet, COUNT(*) MNActive FROM "
-                ."(SELECT cim.MasternodeOutputHash MasternodeOutputHash, cim.MasternodeOutputIndex MasternodeOutputIndex, cim.MasternodeTestNet MNTestNet, COUNT(1) ActiveCount FROM "
-                ."cmd_info_masternode2_list ciml, cmd_info_masternode2 cim, (SELECT NodeTestNet, MAX(NodeProtocol) Protocol FROM "
-                ."cmd_nodes cn, cmd_nodes_status cns WHERE cn.NodeId = cns.NodeId GROUP BY NodeTestnet) maxprot WHERE cim.MasternodeOutputHash = ciml.MasternodeOutputHash "
+          $sql = "SELECT COUNT(*) MNActive FROM "
+                ."(SELECT cim.MasternodeOutputHash MasternodeOutputHash, cim.MasternodeOutputIndex MasternodeOutputIndex, COUNT(1) ActiveCount FROM "
+                ."cmd_info_masternode2_list ciml, cmd_info_masternode2 cim, (SELECT MAX(NodeProtocol) Protocol FROM "
+                .sprintf("cmd_nodes cn, cmd_nodes_status cns WHERE cn.NodeId = cns.NodeId AND cn.NodeTestNet = %d) maxprot WHERE cim.MasternodeOutputHash = ciml.MasternodeOutputHash ",$istesnet)
                 ."AND ciml.MasternodeOutputIndex = cim.MasternodeOutputIndex AND ciml.MasternodeTestNet = cim.MasternodeTestNet AND (MasternodeStatus = 'active' OR MasternodeStatus = 'current') "
-                ."AND cim.MasternodeProtocol = maxprot.Protocol AND ciml.MasternodeTestNet = maxprot.NodeTestNet "
-                ."GROUP BY cim.MasternodeOutputHash, cim.MasternodeOutputIndex, cim.MasternodeTestNet) mnactive "
-                ."WHERE ActiveCount > 0 GROUP BY MNTestNet";
+                .sprintf("AND cim.MasternodeProtocol = maxprot.Protocol AND ciml.MasterNodeTestNet = %d",$istestnet)
+                ."GROUP BY cim.MasternodeOutputHash, cim.MasternodeOutputIndex) mnactive "
+                ."WHERE ActiveCount > 0";
 
           $sqlstats2 = array();
           $activemncount = 0;
-          $activemncountarr[0] = 0;
-          $activemncountarr[1] = 0;
           $uniquemnips = 0;
-          drkmn_masternodes_count($mysqli,0,$activemncount,$uniquemnips);
+          drkmn_masternodes_count($mysqli,$istestnet,$activemncount,$uniquemnips);
           $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnactive',$activemncount,time());
           $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnuniqiptest',$uniquemnips,time());
-          $activemncountarr[0] = $activemncount;
-          $activemncount = 0;
-          $uniquemnips = 0;
-          drkmn_masternodes_count($mysqli,1,$activemncount,$uniquemnips);
-          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnactivetest',$activemncount,time());
-          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnuniqiptest',$uniquemnips,time());
-          $activemncountarr[1] = $activemncount;
 
-          $sql = "SELECT StatKey, StatValue FROM cmd_stats_values WHERE StatKey = 'usdbtc' OR StatKey = 'btcdrk' OR StatKey = 'eurobtc' OR StatKey = 'mnactiveath' OR StatKey = 'mnactiveathtest'";
-          $tmp = array("btcdrk" => 0.0, "eurobtc" => 0.0, "usdbtc" => 0.0, "mnactiveath" => 0, "mnactiveathtest" => 0);
+          $teststr = "";
+          if ($istestnet == 1) {
+              $teststr = "test";
+          }
+          $sql = "SELECT StatKey, StatValue FROM cmd_stats_values WHERE StatKey = 'usdbtc' OR StatKey = 'btcdrk' OR StatKey = 'eurobtc' OR StatKey = 'mnactiveath$teststr'";
+          $tmp = array("btcdrk" => 0.0, "eurobtc" => 0.0, "usdbtc" => 0.0, "mnactiveath$teststr" => 0);
           if ($result = $mysqli->query($sql)) {
             while ($row = $result->fetch_assoc()) {
               $tmp[$row['StatKey']] = floatval($row['StatValue']);
@@ -1674,43 +1694,37 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           $pricebtc = $tmp['btcdrk'];
           $priceeur = $pricebtc*$tmp['eurobtc'];
           $priceusd = $pricebtc*$tmp['usdbtc'];
-          $activemncountath = $tmp['mnactiveath'];
-          if ($activemncountarr[0] > $activemncountath) {
-            $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnactiveath',$activemncountarr[0],time());
-          }
-          $activemncountathtest = $tmp['mnactiveathtest'];
-          if ($activemncountarr[1] > $activemncountathtest) {
-              $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnactiveathtest',$activemncountarr[1],time());
+          $activemncountath = $tmp["mnactiveath$teststr"];
+          if ($activemncount > $activemncountath) {
+            $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')","mnactiveath$teststr",$activemncount,time());
           }
 
-          foreach($testnetval as $testnet) {
-            $sqlstats[] = sprintf("(%d,NOW(),%d,%d,%01.9f,%01.9f,%01.9f)",
-                                       $testnet,
-                                       $activemncountarr[$testnet],
-                                       $networkhashps[$testnet],
+          $sqlstats[] = sprintf("(%d,NOW(),%d,%d,%01.9f,%01.9f,%01.9f)",
+                                       $istestnet,
+                                       $activemncount,
+                                       $networkhashps,
                                        $pricebtc,
                                        $priceusd,
                                        $priceeur
                                   );
-            $statkey = "networkhashpers";
-            if ($testnet == 1) {
+          $statkey = "networkhashpers";
+          if ($istestnet == 1) {
+            $statkey .= "test";
+          }
+          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$networkhashps,time());
+          if ((isset($governancenextsuperblock)) && (!is_null($governancenextsuperblock)) && ($governancenextsuperblock > 0)) {
+            $statkey = "governancesb";
+            if ($istestnet == 1) {
               $statkey .= "test";
             }
-            $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$networkhashps[$testnet],time());
-            if ((isset($governancenextsuperblock[$testnet])) && (!is_null($governancenextsuperblock[$testnet])) && ($governancenextsuperblock[$testnet] > 0)) {
-                $statkey = "governancesb";
-                if ($testnet == 1) {
-                    $statkey .= "test";
-                }
-                $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$governancenextsuperblock[$testnet],time());
+            $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$governancenextsuperblock,time());
+          }
+          if ((isset($governancebudget)) && (!is_null($governancebudget)) && ($governancebudget > 0)) {
+            $statkey = "governancebudget";
+            if ($istestnet == 1) {
+              $statkey .= "test";
             }
-              if ((isset($governancebudget[$testnet])) && (!is_null($governancebudget[$testnet])) && ($governancebudget[$testnet] > 0)) {
-                  $statkey = "governancebudget";
-                  if ($testnet == 1) {
-                      $statkey .= "test";
-                  }
-                  $sqlstats2[] = sprintf("('%s','%s',%01.9f,'dashninja')", $statkey, $governancebudget[$testnet], time());
-              }
+            $sqlstats2[] = sprintf("('%s','%s',%01.9f,'dashninja')", $statkey, $governancebudget, time());
           }
 
           $statsinfo = false;
