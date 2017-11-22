@@ -261,6 +261,89 @@ $app->post('/balances', function() use ($app,&$mysqli) {
 });
 
 // ============================================================================
+// BLOCKSGAPS (data for dmnblockdegapper)
+// ----------------------------------------------------------------------------
+// End-point for the balance report
+// HTTP method:
+//   GET
+// Parameters (JSON body):
+//   testnet=0|1
+//   interval=interval (optional, default is P1D for 1 day)
+// Result (JSON body):
+//   status=OK|ERROR
+//   messages=array of error messages (only if status is ERROR)
+//   data=array of blocks (only is status is OK)
+// ============================================================================
+$app->get('/blocksgaps', function() use ($app,&$mysqli) {
+
+    //Create a response
+    $response = new Phalcon\Http\Response();
+
+    $request = $app->request;
+
+    $errmsg = array();
+
+    if (!array_key_exists('CONTENT_LENGTH',$_SERVER) || (intval($_SERVER['CONTENT_LENGTH']) != 0)) {
+        $errmsg[] = "No CONTENT expected";
+    }
+
+    // Retrieve the 'testnet' parameter
+    if ($request->hasQuery('testnet')) {
+        $testnet = intval($request->getQuery('testnet'));
+        if (($testnet != 0) && ($testnet != 1)) {
+            $testnet = 0;
+        }
+    }
+    else {
+        $testnet = 0;
+    }
+
+    // Retrieve the 'interval' parameter
+    if ($request->hasQuery('interval')) {
+        try {
+            $interval = new DateInterval($request->getQuery('interval'));
+        } catch (Exception $e) {
+            $errmsg[] = 'Wrong interval parameter';
+            $interval = new DateInterval('P1M');
+        }
+    }
+    else {
+        $interval = new DateInterval('P1M');
+    }
+    $interval->invert = 1;
+    $datefrom = new DateTime();
+    $datefrom->add( $interval );
+    $datefrom = $datefrom->getTimestamp();
+
+    if (count($errmsg) > 0) {
+        //Change the HTTP status
+        $response->setStatusCode(400, "Bad Request");
+
+        //Send errors to the client
+        $response->setJsonContent(array('status' => 'ERROR', 'messages' => $errmsg));
+    }
+    else {
+        $sql = sprintf("SELECT BlockId FROM cmd_info_blocks WHERE BlockTestNet = %d AND BlockTime >= %d ORDER BY BlockId DESC",$testnet,$datefrom);
+        $blocks = array();
+        if ($result = $mysqli->query($sql)) {
+            while($row = $result->fetch_array(MYSQLI_NUM)){
+                $blocks[intval($row[0])] = intval($row[0]);
+            }
+
+            //Change the HTTP status
+            $response->setStatusCode(200, "OK");
+            $response->setJsonContent(array('status' => 'OK', 'data' => $blocks));
+        }
+        else {
+            $response->setStatusCode(503, "Service Unavailable");
+            $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mysqli->errno.': '.$mysqli->error)));
+        }
+    }
+    return $response;
+
+});
+
+// ============================================================================
 // BLOCKS (Reporting for dmnblockparser)
 // ----------------------------------------------------------------------------
 // End-point for the balance report
@@ -434,7 +517,7 @@ EOT;
               $blockhist[intval($bientry['BlockId'])]['BlockMNValueRatioExpected'] = 0.5;
           }
 
-        $bisql[] = sprintf("(%d,%d,'%s','%s',%.9f,%.9f,%d,'%s',%d,%d,%.9f,%d,'%s',%.9f,%d,'%s',%d,%d,%d,%.9f)",$bientry['BlockTestNet'],
+        $bisql[] = sprintf("(%d,%d,'%s','%s',%.9f,%.9f,%d,'%s',%d,%d,%.9f,%d,'%s',%.9f,%d,'%s',%d,%d,%d,%.9f,%d)",$bientry['BlockTestNet'],
                                                      $bientry['BlockId'],
                                                      $mysqli->real_escape_string($bientry['BlockHash']),
                                                      $mysqli->real_escape_string($bientry['BlockMNPayee']),
@@ -453,7 +536,8 @@ EOT;
             $bientry['BlockDarkSendTXCount'],
             $bientry['MemPoolDarkSendTXCount'],
             $bientry['SuperblockBudgetPayees'],
-            $bientry['SuperblockBudgetAmount']
+            $bientry['SuperblockBudgetAmount'],
+            $bientry['BlockVersion']
         );
         if ((array_key_exists($bientry['BlockMNPayee'].":".$bientry['BlockTestNet'],$mninfo) && ($mninfo[$bientry['BlockMNPayee'].":".$bientry['BlockTestNet']] < $bientry['BlockId']))
          || !(array_key_exists($bientry['BlockMNPayee'].":".$bientry['BlockTestNet'],$mninfo))) {
@@ -481,7 +565,7 @@ EOT;
       if (count($bisql) > 0) {
         $sql = "INSERT INTO cmd_info_blocks (BlockTestNet, BlockId, BlockHash, BlockMNPayee, BlockMNValue, BlockSupplyValue, BlockMNPayed, "
               ."BlockPoolPubKey, BlockMNProtocol, BlockTime, BlockDifficulty, BlockMNPayeeDonation, BlockMNPayeeExpected, BlockMNValueRatioExpected, IsSuperblock, SuperblockBudgetName, "
-              ."BlockDarkSendTXCount, MemPoolDarkSendTXCount, SuperblockBudgetPayees, SuperblockBudgetAmount)"
+              ."BlockDarkSendTXCount, MemPoolDarkSendTXCount, SuperblockBudgetPayees, SuperblockBudgetAmount, BlockVersion)"
               ." VALUES ".implode(',',$bisql)
               ." ON DUPLICATE KEY UPDATE BlockHash = VALUES(BlockHash), BlockMNPayee = VALUES(BlockMNPayee), BlockMNValue = VALUES(BlockMNValue),"
               ." BlockSupplyValue = VALUES(BlockSupplyValue), BlockMNPayed = VALUES(BlockMNPayed), BlockPoolPubKey = VALUES(BlockPoolPubKey),"
@@ -489,7 +573,8 @@ EOT;
               ." BlockMNPayeeDonation = VALUES(BlockMNPayeeDonation), BlockMNPayeeExpected = VALUES(BlockMNPayeeExpected),"
               ." BlockMNValueRatioExpected = VALUES(BlockMNValueRatioExpected), IsSuperblock = VALUES(IsSuperblock), SuperblockBudgetName = VALUES(SuperblockBudgetName),"
               ." BlockDarkSendTXCount = VALUES(BlockDarkSendTXCount), MemPoolDarkSendTXCount = VALUES(MemPoolDarkSendTXCount),"
-              ." SuperblockBudgetPayees = VALUES(SuperblockBudgetPayees), SuperblockBudgetAmount = VALUES(SuperblockBudgetAmount)";
+              ." SuperblockBudgetPayees = VALUES(SuperblockBudgetPayees), SuperblockBudgetAmount = VALUES(SuperblockBudgetAmount),"
+              ." BlockVersion = VALUES(BlockVersion)";
 
         if ($result = $mysqli->query($sql)) {
           $biinfo = $mysqli->info;
@@ -873,6 +958,89 @@ function drkmn_masternodes_count($mysqli,$testnet,&$totalmncount,&$uniquemnips) 
 
 }
 
+// Function to retrieve the masternode list
+function dmn_cmd_masternodes2_get($mysqli, $testnet = 0) {
+
+    $sqltestnet = sprintf("%d",$testnet);
+
+    $sql = <<<EOT
+DROP TABLE IF EXISTS _node_status2;
+CREATE TEMPORARY TABLE IF NOT EXISTS
+    _node_status2 ENGINE=MEMORY AS (
+    SELECT
+        ciml.MasternodeOutputHash,
+        ciml.MasternodeOutputIndex,
+        ciml.MasternodeStatus,
+        ciml.MasternodeTestNet,
+        SUM(CASE
+            WHEN MasternodeStatus = 'active' THEN 1
+            WHEN MasternodeStatus = 'current' THEN 1
+            ELSE NULL END) AS ActiveCount,
+        SUM(CASE
+            WHEN MasternodeStatus = 'inactive' THEN 1
+            ELSE NULL END) AS InactiveCount,
+        SUM(CASE
+            WHEN MasternodeStatus = 'unlisted' THEN 1
+            ELSE NULL END) AS UnlistedCount
+    FROM
+        cmd_info_masternode2_list ciml, cmd_nodes_status cns
+    WHERE
+        ciml.NodeID = cns.NodeID AND
+        ciml.MasternodeTestNet = $sqltestnet
+    GROUP BY
+        ciml.MasternodeOutputHash, ciml.MasternodeOutputIndex, ciml.MasternodeTestNet
+    );
+SELECT
+    cim.MasternodeOutputHash MasternodeOutputHash,
+    cim.MasternodeOutputIndex MasternodeOutputIndex,
+    inet6_ntoa(cim.MasternodeIPv6) AS MasternodeIP,
+    cim.MasternodeTor MasternodeTor,
+    cim.MasternodePort MasternodePort,
+    cim.MasternodePubkey MasternodePubkey,
+    MasternodeProtocol
+FROM
+    (cmd_info_masternode2 cim,
+    _node_status2)
+WHERE
+    cim.MasternodeOutputHash = _node_status2.MasternodeOutputHash AND
+    cim.MasternodeOutputIndex = _node_status2.MasternodeOutputIndex AND
+    cim.MasternodeTestNet = _node_status2.MasternodeTestNet AND
+    cim.MasternodeTestNet = $sqltestnet AND
+    ((ActiveCount > 0) OR (InactiveCount > 0))
+ORDER BY MasternodeOutputHash, MasternodeOutputIndex;
+EOT;
+
+    // Execute the query
+    $numnodes = 0;
+    if ($mysqli->multi_query($sql)) {
+        if ($mysqli->more_results() && $mysqli->next_result()) {
+            if ($mysqli->more_results() && $mysqli->next_result()) {
+                if ($result = $mysqli->store_result()) {
+                    $nodes = array();
+                    while($row = $result->fetch_assoc()){
+                        $numnodes++;
+                        $nodes[] = $row;
+                    }
+                }
+                else {
+                    $nodes = false;
+                }
+            }
+            else {
+                $nodes = false;
+            }
+        }
+        else {
+            $nodes = false;
+        }
+    }
+    else {
+        $nodes = false;
+    }
+
+    return $nodes;
+}
+
 // ============================================================================
 // MASTERNODES
 // ----------------------------------------------------------------------------
@@ -891,6 +1059,16 @@ $app->get('/masternodes', function() use ($app,&$mysqli) {
 
   $request = $app->request;
 
+  // Retrieve the 'testnet' parameter
+  if ($request->hasQuery('testnet')) {
+    $testnet = intval($request->getQuery('testnet'));
+    if (($testnet != 0) && ($testnet != 1)) {
+      $testnet = 0;
+    }
+  }
+  else {
+    $testnet = 0;
+  }
   if (!array_key_exists('CONTENT_LENGTH',$_SERVER) || (intval($_SERVER['CONTENT_LENGTH']) != 0)) {
     //Change the HTTP status
     $response->setStatusCode(400, "Bad Request");
@@ -898,31 +1076,18 @@ $app->get('/masternodes', function() use ($app,&$mysqli) {
     $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('Payload (or CONTENT_LENGTH) is missing')));
   }
   else {
-    $mnlist1 = dashninja_masternodes_get($mysqli, 0);
-    $mnlist1errno = $mysqli->errno;
-    $mnlist1error = $mysqli->error;
-    $mnlist2 = dashninja_masternodes_get($mysqli, 1);
-    $mnlist2errno = $mysqli->errno;
-    $mnlist2error = $mysqli->error;
-    if (($mnlist1 !== false) && ($mnlist2 !== false)) {
-      $mnlist = array_merge($mnlist1,$mnlist2);
-    // Retrieve all known nodes for current hub
-//    $sql = "SELECT inet_ntoa(cim.MasternodeIP) MasternodeIP, cim.MasternodePort MasternodePort, cim.MNTestNet MNTestNet, cimpk.MNPubKey MNPubKey FROM "
-//          ."cmd_info_masternode cim, cmd_info_masternode_pubkeys cimpk WHERE "
-//          ."cim.MasternodeIP = cimpk.MasternodeIP AND cim.MasternodePort = cimpk.MasternodePort AND cim.MNTestNet = cimpk.MNTestNet ORDER BY MasternodeIP, MasternodePort, MNTestNet, MNPubKey ";
-//    $mnlist = array();
-//    if ($result = $mysqli->query($sql)) {
-//      while($row = $result->fetch_assoc()){
-//        $mnlist[] = $row;
-//      }
 
+    $mnlist = dmn_cmd_masternodes2_get($mysqli, $testnet);;
+    $mnlisterrno = $mysqli->errno;
+    $mnlisterror = $mysqli->error;
+    if ($mnlist !== false) {
       //Change the HTTP status
       $response->setStatusCode(200, "OK");
       $response->setJsonContent(array('status' => 'OK', 'data' => array('masternodes' => $mnlist)));
     }
     else {
       $response->setStatusCode(503, "Service Unavailable");
-      $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mnlist1errno.': '.$mnlist1error,$mnlist2errno.': '.$mnlist2error,print_r($mnlist1,true),print_r($mnlist2,true))));
+      $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mnlisterrno.': '.$mnlisterror,print_r($mnlist,true))));
     }
   }
   return $response;
