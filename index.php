@@ -1694,7 +1694,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
               }
               if ($mntor !== false) {
                   $mnoutputhash = $mysqli->real_escape_string($mninfo['MasternodeOutputHash']);
-                  $mninfosql2[] = sprintf("('%s', %d, %d, %d, '%s', %d, INET6_ATON('%s'), '%s', %d, %d, %d, %d)",
+                  $mninfosql2[] = sprintf("('%s', %d, %d, %d, '%s', %d, INET6_ATON('%s'), '%s', %d, %d, %d, %d, %d, '%s', '%s', '%s')",
                       $mnoutputhash,
                       $mninfo['MasternodeOutputIndex'],
                       $mninfo['MasternodeTestNet'],
@@ -1706,7 +1706,11 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                       $mninfo['MasternodePort'],
                       $mninfo['MasternodeLastSeen'],
                       $mninfo['MasternodeActiveSeconds'],
-                      $mninfo['MasternodeLastPaid']
+                      $mninfo['MasternodeLastPaid'],
+                      $mninfo['MasternodeLastPaidBlock'],
+                      $mysqli->real_escape_string($mninfo['MasternodeDaemonVersion']),
+                      $mysqli->real_escape_string($mninfo['MasternodeSentinelVersion']),
+                      $mysqli->real_escape_string($mninfo['MasternodeSentinelState'])
                   );
                   $mngeoip = geoip_record_by_name($mninfo['MasternodeIP']);
                   if ($mngeoip !== FALSE) {
@@ -1730,11 +1734,14 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           if (count($mninfosql2) > 0) {
             $sql = "INSERT INTO cmd_info_masternode2 (MasternodeOutputHash, MasternodeOutputIndex, MasternodeTestNet,"
                   ." MasternodeProtocol, MasternodePubkey, MasternodeIP, MasternodeIPv6, MasternodeTor, MasternodePort,"
-                  ." MasternodeLastSeen, MasternodeActiveSeconds, MasternodeLastPaid) VALUE ".implode(',',$mninfosql2)
+                  ." MasternodeLastSeen, MasternodeActiveSeconds, MasternodeLastPaid, MasternodeLastPaidBlock, MasternodeDaemonVersion,"
+                  ." MasternodeSentinelVersion, MasternodeSentinelState) VALUE ".implode(',',$mninfosql2)
                   ." ON DUPLICATE KEY UPDATE MasternodeActiveSeconds = VALUES(MasternodeActiveSeconds),"
                   ." MasternodeLastSeen = VALUES(MasternodeLastSeen), MasternodeProtocol = VALUES(MasternodeProtocol),"
                   ." MasternodePubkey = VALUES(MasternodePubkey), MasternodeIP = VALUES(MasternodeIP), MasternodeIPv6 = VALUES(MasternodeIPv6),"
-                  ." MasternodeTor = VALUES(MasternodeTor), MasternodePort = VALUES(MasternodePort), MasternodeLastPaid = VALUES(MasternodeLastPaid)";
+                  ." MasternodeTor = VALUES(MasternodeTor), MasternodePort = VALUES(MasternodePort), MasternodeLastPaid = VALUES(MasternodeLastPaid),"
+                  ." MasternodeLastPaidBlock = VALUES(MasternodeLastPaidBlock), MasternodeDaemonVersion = VALUES(MasternodeDaemonVersion),"
+                  ." MasternodeSentinelVersion = VALUES(MasternodeSentinelVersion), MasternodeSentinelState = VALUES(MasternodeSentinelState)";
 
             if ($result22 = $mysqli->query($sql)) {
                 $mninfo2info = $mysqli->info . $skipinfo;
