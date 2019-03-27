@@ -1767,10 +1767,10 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                           return $response;
                       }
                       $nodeid = $nodes[$uname]['NodeId'];
-                      $keyIDOwner = $mysqli->real_escape_string($protxstate['keyIDOwner']);
+                      $keyIDOwner = $mysqli->real_escape_string($protxstate['ownerAddress']);
                       $pubKeyOperator = $mysqli->real_escape_string($protxstate['pubKeyOperator']);
-                      $keyIDVoting = $mysqli->real_escape_string($protxstate['keyIDVoting']);
-                      $addr = $mysqli->real_escape_string($protxstate['addr']);
+                      $keyIDVoting = $mysqli->real_escape_string($protxstate['votingAddress']);
+                      $addr = $mysqli->real_escape_string($protxstate['service']);
                       $payoutAddress = $mysqli->real_escape_string($protxstate['payoutAddress']);
                       if (array_key_exists('operatorRewardAddress',$protxstate)) {
                           $operatorRewardAddress = $mysqli->real_escape_string($protxstate['operatorRewardAddress']);
