@@ -136,7 +136,7 @@ $app = new \Phalcon\Mvc\Micro();
 $app->setEventsManager($eventManager);
 
 $router = $app->getRouter();
-$router->setUriSource(\Phalcon\Mvc\Router::URI_SOURCE_SERVER_REQUEST_URI);
+//$router->setUriSource(\Phalcon\Mvc\Router::URI_SOURCE_SERVER_REQUEST_URI);
 
 // ============================================================================
 // BALANCES (for dmnbalance)
@@ -1328,22 +1328,17 @@ $app->get('/masternodes', function() use ($app,&$mysqli) {
   }
   else {
 
-    $mnlist = dmn_cmd_masternodes2_get($mysqli, $testnet);;
-    $mnlisterrno = $mysqli->errno;
-    $mnlisterror = $mysqli->error;
     $protxlist = dmn_cmd_protx_get($mysqli, $testnet);;
     $protxlisterrno = $mysqli->errno;
     $protxlisterror = $mysqli->error;
-    $mnlistfinal = array_merge($mnlist,$protxlist);
-    if (($mnlist !== false) && ($protxlist !== false)) {
+    if ($protxlist !== false) {
       //Change the HTTP status
       $response->setStatusCode(200, "OK");
-      $response->setJsonContent(array('status' => 'OK', 'data' => array('masternodes' => $mnlistfinal)));
+      $response->setJsonContent(array('status' => 'OK', 'data' => array('masternodes' => $protxlist)));
     }
     else {
       $response->setStatusCode(503, "Service Unavailable");
-      $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($mnlisterrno.': '.$mnlisterror,print_r($mnlist,true),
-        $protxlisterrno.': '.$protxlisterror,print_r($protxlist,true))));
+      $response->setJsonContent(array('status' => 'ERROR', 'messages' => array($protxlisterrno.': '.$protxlisterror,print_r($protxlist,true))));
     }
   }
   return $response;
@@ -2822,6 +2817,7 @@ $app->get('/portcheck/list', function() use ($app,&$mysqli) {
     $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('Payload (or CONTENT_LENGTH) is missing')));
   }
   else {
+
     // Retrieve all masternodes informations for portchecker
     $sql = "SELECT inet6_ntoa(NodeIP) NodeIP, NodePort, NodeTestNet, NodePortCheck, NextCheck, NodeSubVer, ErrorMessage FROM cmd_portcheck ORDER BY NextCheck";
     $portcheck = array();
@@ -3163,6 +3159,7 @@ $app->notFound(function () use ($app) {
     $response->send();
 });
 
-$app->handle();
+$request = new Phalcon\Http\Request();
+$app->handle($request->getURI());
 
 ?>
