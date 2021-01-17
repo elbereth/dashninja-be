@@ -2607,7 +2607,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                     $mysqli->real_escape_string($objectvote["MasternodeOutputHash"]),
                     $objectvote["MasternodeOutputIndex"],
                     $mysqli->real_escape_string($objectvote["VoteHash"]),
-                    $mysqli->real_escape_string($objectvote["VoteValue"]),
+                    strtoupper($mysqli->real_escape_string($objectvote["VoteValue"])),
                     $objectvote["VoteTime"]
                 );
             }
@@ -2628,7 +2628,6 @@ $app->post('/ping', function() use ($app,&$mysqli) {
                     $objvotesinfo = $mysqli->error;
                 }
             }
-
 
             //Change the HTTP status
           $response->setStatusCode(202, "Accepted");
