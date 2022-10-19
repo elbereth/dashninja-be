@@ -1742,6 +1742,8 @@ $app->post('/ping', function() use ($app,&$mysqli) {
 
             $protxsql = array();
             $protxstatesql = array();
+            $activemncount = 0;
+            $mnuniqueiplist = array();
             foreach($payload['protx'] as $testnet => $protxlist) {
               foreach($protxlist as $protxhash => $protx) {
                   $protxhash = $mysqli->real_escape_string($protxhash);
@@ -1776,6 +1778,11 @@ $app->post('/ping', function() use ($app,&$mysqli) {
 
                       $mnip = $mysqli->real_escape_string(substr($addr,0,strrpos($addr,":")));
                       $mnport = intval(substr($addr,0-strlen($addr)+strlen($mnip)+1));
+
+                      if(intval($protxstate['PoSeBanHeight']) === -1) {
+                        $mnactivelist[$protxhash] = $protxhash;
+                        $mnuniqueiplist[$mnip] = $mnip;
+                      }
 
                       $protxstatesql[] = sprintf("(%d, '%s', %d, %d, %d, %d, %d, %d, %d, '%s', '%s', '%s', INET6_ATON('%s'), %d, '%s', '%s')",
                           $testnet,
@@ -2186,7 +2193,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
             }
           }
 
-          $activemncount = array(0,0);
+          //$activemncount = array(0,0);
           $networkhashps = 0;
           $governancenextsuperblock = 0;
           $governancebudget = 0;
@@ -2206,16 +2213,16 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           }
 
           $sqlstats2 = array();
-          $activemncount = 0;
-          $uniquemnips = 0;
-          dmn_masternodes_count($mysqli,$istestnet,$activemncount,$uniquemnips);
-          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnactive',$activemncount,time());
-          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnuniqiptest',$uniquemnips,time());
-
+          $activemncount = count($mnactivelist);
+          $uniquemnips = count($mnuniqueiplist);
+          //dmn_masternodes_count($mysqli,$istestnet,$activemncount,$uniquemnips);
           $teststr = "";
           if ($istestnet == 1) {
-              $teststr = "test";
+            $teststr = "test";
           }
+          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')","mnactive$teststr",$activemncount,time());
+          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')","mnuniqip$teststr",$uniquemnips,time());
+
           $sql = "SELECT StatKey, StatValue FROM cmd_stats_values WHERE StatKey = 'usdbtc' OR StatKey = 'btcdrk' OR StatKey = 'eurobtc' OR StatKey = 'mnactiveath$teststr'";
           $tmp = array("btcdrk" => 0.0, "eurobtc" => 0.0, "usdbtc" => 0.0, "mnactiveath$teststr" => 0);
           if ($result = $mysqli->query($sql)) {
